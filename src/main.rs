@@ -5,6 +5,8 @@
 
 // The appsink enforces RGBA so that the image crate can use it. The image crate also requires
 // tightly packed pixels, which is the case for RGBA by default in GStreamer.
+//
+// Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/examples/src/bin/thumbnail.rs
 
 extern crate gstreamer as gst;
 use gst::gst_element_error;
@@ -235,6 +237,7 @@ fn example_main() {
     let out_path = args
         .next()
         .expect("No output path provided on the commandline");
+
     let out_path = std::path::PathBuf::from(out_path);
 
     match create_pipeline(uri, out_path).and_then(|pipeline| main_loop(pipeline, position)) {
@@ -247,4 +250,55 @@ fn main() {
     // tutorials_common::run is only required to set up the application environment on macOS
     // (but not necessary in normal Cocoa applications where this is set up automatically)
     examples_common::run(example_main);
+}
+
+#[cfg(test)]
+mod test {
+    use dssim::*;
+    use imgref::*;
+    use std::path::Path;
+    use load_image::ImageData;
+
+    fn load<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
+        let img = load_image::load_image(path.as_ref(), false)?;
+        match img.bitmap {
+            ImageData::RGB8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::RGB16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::RGBA8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::RGBA16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::GRAY8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::GRAY16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::GRAYA8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+            ImageData::GRAYA16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
+        }
+    }
+
+    #[test]
+    fn compare_equal_images() {
+        let slate_img = load("../slate.jpg").unwrap();
+
+
+        let algo = dssim::Dssim::new();
+        let slate = algo.create_image(&slate_img).unwrap();
+
+        let (res, _) = algo.compare(&slate, slate.clone());
+        let val: f64 = res.into();
+
+        assert_eq!((val * 1000f64) as u32, 0u32);
+    }
+
+    #[test]
+    fn compare_diff_images() {
+        let slate_img = load("../slate.jpg").unwrap();
+        let frame_img = load("../non-slate.jpg").unwrap();
+
+        let algo = dssim::Dssim::new();
+        let slate = algo.create_image(&slate_img).unwrap();
+        let frame = algo.create_image(&frame_img).unwrap();
+
+        let (res, _) = algo.compare(&slate, frame);
+        let val: f64 = res.into();
+
+        assert_eq!((val * 1000f64) as u32, 7417u32);
+    }
 }
