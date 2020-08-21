@@ -115,7 +115,7 @@ fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pip
                 // a height of 240 pixels
                 let display_aspect_ratio = (info.width() as f64 * *info.par().numer() as f64)
                     / (info.height() as f64 * *info.par().denom() as f64);
-                let target_height = 300;
+                let target_height = 500;
                 let target_width = target_height as f64 * display_aspect_ratio;
 
                 // Create an ImageBuffer around the borrowed video frame data from GStreamer.
