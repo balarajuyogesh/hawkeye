@@ -9,7 +9,7 @@
 // Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/examples/src/bin/thumbnail.rs
 
 extern crate gstreamer as gst;
-use gst::gst_element_error;
+use gst::{gst_element_error, FlowSuccess, FlowError};
 use gst::prelude::*;
 extern crate gstreamer_app as gst_app;
 extern crate gstreamer_video as gst_video;
@@ -18,6 +18,12 @@ extern crate image;
 
 use anyhow::Error;
 use derive_more::{Display, Error};
+use std::time::Instant;
+use dssim::*;
+use imgref::*;
+use std::path::Path;
+use load_image::{ImageData, Image};
+use image::{ImageEncoder, ColorType};
 
 mod examples_common;
 
@@ -34,7 +40,30 @@ struct ErrorMessage {
     source: glib::Error,
 }
 
-fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pipeline, Error> {
+fn load_data(data: &[u8]) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
+    let img = load_image::load_image_data(data, false)?;
+    Ok(match_img_bitmap(img))
+}
+
+fn load_path<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
+    let img = load_image::load_image(path.as_ref(), false)?;
+    Ok(match_img_bitmap(img))
+}
+
+fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
+    match img.bitmap {
+        ImageData::RGB8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::RGB16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::RGBA8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::RGBA16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::GRAY8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::GRAY16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::GRAYA8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+        ImageData::GRAYA16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
+    }
+}
+
+fn create_pipeline(uri: String) -> Result<gst::Pipeline, Error> {
     gst::init()?;
 
     // Create our pipeline from a pipeline description string.
@@ -64,7 +93,12 @@ fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pip
             .build(),
     ));
 
-    let mut got_snapshot = false;
+    let mut frame_num = 0u32;
+    let mut started = Instant::now();
+
+    let algo = dssim::Dssim::new();
+    let slate_img = load_path("../slate.jpg").unwrap();
+    let slate = algo.create_image(&slate_img).unwrap();
 
     // Getting data out of the appsink is done by setting callbacks on it.
     // The appsink will then call those handlers, as soon as data is available.
@@ -87,12 +121,6 @@ fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pip
                 let caps = sample.get_caps().expect("Sample without caps");
                 let info = gst_video::VideoInfo::from_caps(&caps).expect("Failed to parse caps");
 
-                // Make sure that we only get a single buffer
-                if got_snapshot {
-                    return Err(gst::FlowError::Eos);
-                }
-                got_snapshot = true;
-
                 // At this point, buffer is only a reference to an existing memory region somewhere.
                 // When we want to access its content, we have to map it while requesting the required
                 // mode of access (read, read/write).
@@ -110,8 +138,12 @@ fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pip
                     gst::FlowError::Error
                 })?;
 
-                // We only want to have a single buffer and then have the pipeline terminate
-                println!("Have video frame");
+                // Create an ImageBuffer around the borrowed video frame data from GStreamer.
+                let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
+                    info.width(),
+                    info.height(),
+                    map,
+                ).expect("Failed to create ImageBuffer, probably a stride mismatch");
 
                 // Calculate a target width/height that keeps the display aspect ratio while having
                 // a height of 240 pixels
@@ -120,37 +152,29 @@ fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pip
                 let target_height = 500;
                 let target_width = target_height as f64 * display_aspect_ratio;
 
-                // Create an ImageBuffer around the borrowed video frame data from GStreamer.
-                let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-                    info.width(),
-                    info.height(),
-                    map,
-                )
-                    .expect("Failed to create ImageBuffer, probably a stride mismatch");
-
                 // Scale image to our target dimensions
                 let scaled_img =
-                    image::imageops::thumbnail(&img, target_width as u32, target_height as u32);
+                    image::imageops::thumbnail(&img, target_width as u32, target_height as u32).into_raw();
 
-                // Save it at the specific location. This automatically detects the file type
-                // based on the filename.
-                scaled_img.save(&out_path).map_err(|err| {
-                    gst_element_error!(
-                        appsink,
-                        gst::ResourceError::Write,
-                        (
-                            "Failed to write thumbnail file {}: {}",
-                            out_path.display(),
-                            err
-                        )
-                    );
+                let mut buffer = Vec::new();
+                image::png::PNGEncoder::new(&mut buffer).write_image(&scaled_img, target_width as u32, target_height as u32, ColorType::Rgba8).unwrap();
 
-                    gst::FlowError::Error
-                })?;
+                let frame_img = load_data(&buffer).unwrap();
+                let frame = algo.create_image(&frame_img).unwrap();
 
-                println!("Wrote thumbnail to {}", out_path.display());
+                let (res, _) = algo.compare(&slate, frame);
+                let val: f64 = res.into();
+                let val = (val * 1000f64) as u32;
 
-                Err(gst::FlowError::Eos)
+                if val <= 900u32 {
+                    println!("Found slate!");
+                    return Err(FlowError::Eos);
+                }
+
+                frame_num += 1;
+                println!("Have video frame, frame number: {}, comparison: {} , time elapsed since last frame capture: {}ms", frame_num, val, started.elapsed().as_millis());
+                started = Instant::now();
+                Ok(FlowSuccess::Ok)
             })
             .build(),
     );
@@ -158,7 +182,7 @@ fn create_pipeline(uri: String, out_path: std::path::PathBuf) -> Result<gst::Pip
     Ok(pipeline)
 }
 
-fn main_loop(pipeline: gst::Pipeline, position: u64) -> Result<(), Error> {
+fn main_loop(pipeline: gst::Pipeline) -> Result<(), Error> {
     pipeline.set_state(gst::State::Paused)?;
 
     let bus = pipeline
@@ -173,16 +197,6 @@ fn main_loop(pipeline: gst::Pipeline, position: u64) -> Result<(), Error> {
         match msg.view() {
             MessageView::AsyncDone(..) => {
                 if !seeked {
-                    // AsyncDone means that the pipeline has started now and that we can seek
-                    println!("Got AsyncDone message, seeking to {}s", position);
-
-                    if pipeline
-                        .seek_simple(gst::SeekFlags::FLUSH, position * gst::SECOND)
-                        .is_err()
-                    {
-                        println!("Failed to seek, taking first frame");
-                    }
-
                     pipeline.set_state(gst::State::Playing)?;
                     seeked = true;
                 } else {
@@ -228,19 +242,8 @@ fn example_main() {
     let uri = args
         .next()
         .expect("No input URI provided on the commandline");
-    let position = args
-        .next()
-        .expect("No position in second on the commandline");
-    let position = position
-        .parse::<u64>()
-        .expect("Failed to parse position as integer");
-    let out_path = args
-        .next()
-        .expect("No output path provided on the commandline");
 
-    let out_path = std::path::PathBuf::from(out_path);
-
-    match create_pipeline(uri, out_path).and_then(|pipeline| main_loop(pipeline, position)) {
+    match create_pipeline(uri).and_then(|pipeline| main_loop(pipeline)) {
         Ok(r) => r,
         Err(e) => eprintln!("Error! {}", e),
     }
@@ -258,25 +261,11 @@ mod test {
     use imgref::*;
     use std::path::Path;
     use load_image::ImageData;
-
-    fn load<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
-        let img = load_image::load_image(path.as_ref(), false)?;
-        match img.bitmap {
-            ImageData::RGB8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::RGB16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::RGBA8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::RGBA16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::GRAY8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::GRAY16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::GRAYA8(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-            ImageData::GRAYA16(ref bitmap) => Ok(Img::new(bitmap.to_rgbaplu(), img.width, img.height)),
-        }
-    }
+    use super::*;
 
     #[test]
     fn compare_equal_images() {
-        let slate_img = load("../slate.jpg").unwrap();
-
+        let slate_img = load_path("../slate.jpg").unwrap();
 
         let algo = dssim::Dssim::new();
         let slate = algo.create_image(&slate_img).unwrap();
@@ -289,8 +278,8 @@ mod test {
 
     #[test]
     fn compare_diff_images() {
-        let slate_img = load("../slate.jpg").unwrap();
-        let frame_img = load("../non-slate.jpg").unwrap();
+        let slate_img = load_path("../slate.jpg").unwrap();
+        let frame_img = load_path("../non-slate.jpg").unwrap();
 
         let algo = dssim::Dssim::new();
         let slate = algo.create_image(&slate_img).unwrap();
