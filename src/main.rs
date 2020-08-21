@@ -97,7 +97,7 @@ fn create_pipeline(uri: String) -> Result<gst::Pipeline, Error> {
     let mut started = Instant::now();
 
     let algo = dssim::Dssim::new();
-    let slate_img = load_path("../slate.jpg").unwrap();
+    let slate_img = load_path("../slate_240px.jpg").unwrap();
     let slate = algo.create_image(&slate_img).unwrap();
 
     // Getting data out of the appsink is done by setting callbacks on it.
@@ -149,7 +149,7 @@ fn create_pipeline(uri: String) -> Result<gst::Pipeline, Error> {
                 // a height of 240 pixels
                 let display_aspect_ratio = (info.width() as f64 * *info.par().numer() as f64)
                     / (info.height() as f64 * *info.par().denom() as f64);
-                let target_height = 500;
+                let target_height = 240;
                 let target_width = target_height as f64 * display_aspect_ratio;
 
                 // Scale image to our target dimensions
