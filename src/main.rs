@@ -63,13 +63,13 @@ fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
     }
 }
 
-fn create_pipeline(uri: String) -> Result<gst::Pipeline, Error> {
+fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
     gst::init()?;
 
     // Create our pipeline from a pipeline description string.
     let pipeline = gst::parse_launch(&format!(
-        "uridecodebin uri={} ! videoconvert ! appsink name=sink",
-        uri
+        "udpsrc port={} address=0.0.0.0 caps = \"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! appsink name=sink",
+        ingest_port
     ))?
         .downcast::<gst::Pipeline>()
         .expect("Expected a gst::Pipeline");
@@ -189,20 +189,14 @@ fn main_loop(pipeline: gst::Pipeline) -> Result<(), Error> {
         .get_bus()
         .expect("Pipeline without bus. Shouldn't happen!");
 
-    let mut seeked = false;
+    pipeline.set_state(gst::State::Playing)?;
+    println!("Pipeline started...");
 
     for msg in bus.iter_timed(gst::CLOCK_TIME_NONE) {
         use gst::MessageView;
 
         match msg.view() {
-            MessageView::AsyncDone(..) => {
-                if !seeked {
-                    pipeline.set_state(gst::State::Playing)?;
-                    seeked = true;
-                } else {
-                    println!("Got second AsyncDone message, seek finished");
-                }
-            }
+            MessageView::AsyncDone(..) => {}
             MessageView::Eos(..) => {
                 // The End-of-stream message is posted when the stream is done, which in our case
                 // happens immediately after creating the thumbnail because we return
@@ -239,11 +233,12 @@ fn example_main() {
 
     // Parse commandline arguments: input URI, position in seconds, output path
     let _arg0 = args.next().unwrap();
-    let uri = args
+    let ingest_port = args
         .next()
-        .expect("No input URI provided on the commandline");
+        .expect("No ingest port provided on the commandline");
+    let ingest_port: u32 = ingest_port.parse().expect("Ingest port is not a number");
 
-    match create_pipeline(uri).and_then(|pipeline| main_loop(pipeline)) {
+    match create_pipeline(ingest_port).and_then(|pipeline| main_loop(pipeline)) {
         Ok(r) => r,
         Err(e) => eprintln!("Error! {}", e),
     }
