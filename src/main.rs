@@ -82,7 +82,7 @@ fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
         .expect("Sink element is expected to be an appsink!");
 
     // Don't synchronize on the clock, we only want a snapshot asap.
-    appsink.set_property("sync", &false).unwrap();
+    appsink.set_property("sync", &false)?;
 
     // Tell the appsink what format we want.
     // This can be set after linking the two objects, because format negotiation between
@@ -97,7 +97,7 @@ fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
     let mut started = Instant::now();
 
     let algo = dssim::Dssim::new();
-    let slate_img = load_path("../slate_240px.jpg").unwrap();
+    let slate_img = load_path("../slate_120px.jpg")?;
     let slate = algo.create_image(&slate_img).unwrap();
 
     // Getting data out of the appsink is done by setting callbacks on it.
@@ -149,7 +149,7 @@ fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
                 // a height of 240 pixels
                 let display_aspect_ratio = (info.width() as f64 * *info.par().numer() as f64)
                     / (info.height() as f64 * *info.par().denom() as f64);
-                let target_height = 240;
+                let target_height = 120;
                 let target_width = target_height as f64 * display_aspect_ratio;
 
                 // Scale image to our target dimensions
@@ -157,7 +157,8 @@ fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
                     image::imageops::thumbnail(&img, target_width as u32, target_height as u32).into_raw();
 
                 let mut buffer = Vec::new();
-                image::png::PNGEncoder::new(&mut buffer).write_image(&scaled_img, target_width as u32, target_height as u32, ColorType::Rgba8).unwrap();
+                image::png::PNGEncoder::new(&mut buffer)
+                    .write_image(&scaled_img, target_width as u32, target_height as u32, ColorType::Rgba8).unwrap();
 
                 let frame_img = load_data(&buffer).unwrap();
                 let frame = algo.create_image(&frame_img).unwrap();
