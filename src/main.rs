@@ -66,10 +66,18 @@ fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
 fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst::Pipeline, Error> {
     gst::init()?;
 
+    let algo = dssim::Dssim::new();
+    let slate_img = load_path(slate_img)?;
+    let slate = algo.create_image(&slate_img).unwrap();
+
     // Create our pipeline from a pipeline description string.
+    println!("w: {}", slate_img.width());
+    println!("h: {}", slate_img.height());
     let pipeline = gst::parse_launch(&format!(
-        "udpsrc port={} address=0.0.0.0 caps = \"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! appsink name=sink",
-        ingest_port
+        "udpsrc port={} address=0.0.0.0 caps = \"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
+        ingest_port,
+        slate_img.width(),
+        slate_img.height()
     ))?
         .downcast::<gst::Pipeline>()
         .expect("Expected a gst::Pipeline");
@@ -84,21 +92,8 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
     // Don't synchronize on the clock, we only want a snapshot asap.
     appsink.set_property("sync", &false)?;
 
-    // Tell the appsink what format we want.
-    // This can be set after linking the two objects, because format negotiation between
-    // both elements will happen during pre-rolling of the pipeline.
-    appsink.set_caps(Some(
-        &gst::Caps::builder("video/x-raw")
-            .field("format", &gst_video::VideoFormat::Rgba.to_str())
-            .build(),
-    ));
-
     let mut frame_num = 0u32;
     let mut started = Instant::now();
-
-    let algo = dssim::Dssim::new();
-    let slate_img = load_path(slate_img)?;
-    let slate = algo.create_image(&slate_img).unwrap();
 
     // Getting data out of the appsink is done by setting callbacks on it.
     // The appsink will then call those handlers, as soon as data is available.
@@ -118,9 +113,6 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
                     gst::FlowError::Error
                 })?;
 
-                let caps = sample.get_caps().expect("Sample without caps");
-                let info = gst_video::VideoInfo::from_caps(&caps).expect("Failed to parse caps");
-
                 // At this point, buffer is only a reference to an existing memory region somewhere.
                 // When we want to access its content, we have to map it while requesting the required
                 // mode of access (read, read/write).
@@ -137,30 +129,7 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
 
                     gst::FlowError::Error
                 })?;
-
-                // Create an ImageBuffer around the borrowed video frame data from GStreamer.
-                let img = image::ImageBuffer::<image::Rgba<u8>, _>::from_raw(
-                    info.width(),
-                    info.height(),
-                    map,
-                ).expect("Failed to create ImageBuffer, probably a stride mismatch");
-
-                // Calculate a target width/height that keeps the display aspect ratio while having
-                // a height of 240 pixels
-                let display_aspect_ratio = (info.width() as f64 * *info.par().numer() as f64)
-                    / (info.height() as f64 * *info.par().denom() as f64);
-                let target_height = 120;
-                let target_width = target_height as f64 * display_aspect_ratio;
-
-                // Scale image to our target dimensions
-                let scaled_img =
-                    image::imageops::thumbnail(&img, target_width as u32, target_height as u32).into_raw();
-
-                let mut buffer = Vec::new();
-                image::png::PNGEncoder::new(&mut buffer)
-                    .write_image(&scaled_img, target_width as u32, target_height as u32, ColorType::Rgba8).unwrap();
-
-                let frame_img = load_data(&buffer).unwrap();
+                let frame_img = load_data(map.as_slice()).unwrap();
                 let frame = algo.create_image(&frame_img).unwrap();
 
                 let (res, _) = algo.compare(&slate, frame);
@@ -173,7 +142,7 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
                 }
 
                 frame_num += 1;
-                println!("Have video frame, frame number: {}, comparison: {} , time elapsed since last frame capture: {}ms", frame_num, val, started.elapsed().as_millis());
+                // println!("Have video frame, frame number: {}, comparison: {} , time elapsed since last frame capture: {}ms", frame_num, val, started.elapsed().as_millis());
                 started = Instant::now();
                 Ok(FlowSuccess::Ok)
             })
