@@ -63,7 +63,7 @@ fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
     }
 }
 
-fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
+fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst::Pipeline, Error> {
     gst::init()?;
 
     // Create our pipeline from a pipeline description string.
@@ -97,7 +97,7 @@ fn create_pipeline(ingest_port: u32) -> Result<gst::Pipeline, Error> {
     let mut started = Instant::now();
 
     let algo = dssim::Dssim::new();
-    let slate_img = load_path("../slate_120px.jpg")?;
+    let slate_img = load_path(slate_img)?;
     let slate = algo.create_image(&slate_img).unwrap();
 
     // Getting data out of the appsink is done by setting callbacks on it.
@@ -234,12 +234,16 @@ fn example_main() {
 
     // Parse commandline arguments: input URI, position in seconds, output path
     let _arg0 = args.next().unwrap();
+    let slate_path = args.next().expect("No slate path provided on the commandline");
+    println!("Slate path: {}", slate_path);
+
     let ingest_port = args
         .next()
         .expect("No ingest port provided on the commandline");
+    println!("Ingest port: {}", ingest_port);
     let ingest_port: u32 = ingest_port.parse().expect("Ingest port is not a number");
 
-    match create_pipeline(ingest_port).and_then(|pipeline| main_loop(pipeline)) {
+    match create_pipeline(ingest_port, slate_path).and_then(|pipeline| main_loop(pipeline)) {
         Ok(r) => r,
         Err(e) => eprintln!("Error! {}", e),
     }
