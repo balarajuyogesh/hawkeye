@@ -18,12 +18,11 @@ extern crate image;
 
 use anyhow::Error;
 use derive_more::{Display, Error};
-use std::time::Instant;
 use dssim::*;
+use structopt::StructOpt;
 use imgref::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use load_image::{ImageData, Image};
-use image::{ImageEncoder, ColorType};
 
 mod examples_common;
 
@@ -71,8 +70,6 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
     let slate = algo.create_image(&slate_img).unwrap();
 
     // Create our pipeline from a pipeline description string.
-    println!("w: {}", slate_img.width());
-    println!("h: {}", slate_img.height());
     let pipeline = gst::parse_launch(&format!(
         "udpsrc port={} address=0.0.0.0 caps = \"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
         ingest_port,
@@ -92,9 +89,6 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
     // Don't synchronize on the clock, we only want a snapshot asap.
     appsink.set_property("sync", &false)?;
 
-    let mut frame_num = 0u32;
-    let mut started = Instant::now();
-
     // Getting data out of the appsink is done by setting callbacks on it.
     // The appsink will then call those handlers, as soon as data is available.
     appsink.set_callbacks(
@@ -103,7 +97,7 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
             .new_sample(move |appsink| {
                 // Pull the sample in question out of the appsink's buffer.
                 let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                let buffer = sample.get_buffer().ok_or_else(|| {
+                let buffer_ref = sample.get_buffer().ok_or_else(|| {
                     gst_element_error!(
                         appsink,
                         gst::ResourceError::Failed,
@@ -120,7 +114,7 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
                 // on the machine's main memory itself, but rather in the GPU's memory.
                 // So mapping the buffer makes the underlying memory region accessible to us.
                 // See: https://gstreamer.freedesktop.org/documentation/plugin-development/advanced/allocation.html
-                let map = buffer.map_readable().map_err(|_| {
+                let buffer = buffer_ref.map_readable().map_err(|_| {
                     gst_element_error!(
                         appsink,
                         gst::ResourceError::Failed,
@@ -129,7 +123,7 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
 
                     gst::FlowError::Error
                 })?;
-                let frame_img = load_data(map.as_slice()).unwrap();
+                let frame_img = load_data(buffer.as_slice()).unwrap();
                 let frame = algo.create_image(&frame_img).unwrap();
 
                 let (res, _) = algo.compare(&slate, frame);
@@ -141,9 +135,6 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
                     return Err(FlowError::Eos);
                 }
 
-                frame_num += 1;
-                // println!("Have video frame, frame number: {}, comparison: {} , time elapsed since last frame capture: {}ms", frame_num, val, started.elapsed().as_millis());
-                started = Instant::now();
                 Ok(FlowSuccess::Ok)
             })
             .build(),
@@ -196,23 +187,41 @@ fn main_loop(pipeline: gst::Pipeline) -> Result<(), Error> {
     Ok(())
 }
 
+fn parse_url(url: &str) -> Result<String, anyhow::Error> {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        Ok(String::from(url))
+    } else {
+        Err(anyhow::anyhow!("Not recognized as a valid URL!"))
+    }
+}
+
+#[derive(Debug, StructOpt)]
+#[structopt(name = "video-slate-detector", about = "Detects slate image and triggers URL request.")]
+struct AppInfo {
+
+    // Path to the slate image
+    #[structopt(parse(from_os_str))]
+    slate_path: PathBuf,
+
+    // Port to listen for the RTP stream
+    #[structopt(short = "i", long = "ingest-port", default_value = "5000")]
+    ingest_port: u32,
+
+    // URL to call when the slate is detected
+    #[structopt(parse(try_from_str = parse_url))]
+    url: String,
+
+    // Method to use in the call
+    #[structopt(short = "m", long = "http-method", default_value = "POST", possible_values = &["POST", "GET", "PUT"])]
+    method: String,
+
+    #[structopt(short = "p", long = "payload", default_value = "")]
+    payload: String,
+}
+
 fn example_main() {
-    use std::env;
-
-    let mut args = env::args();
-
-    // Parse commandline arguments: input URI, position in seconds, output path
-    let _arg0 = args.next().unwrap();
-    let slate_path = args.next().expect("No slate path provided on the commandline");
-    println!("Slate path: {}", slate_path);
-
-    let ingest_port = args
-        .next()
-        .expect("No ingest port provided on the commandline");
-    println!("Ingest port: {}", ingest_port);
-    let ingest_port: u32 = ingest_port.parse().expect("Ingest port is not a number");
-
-    match create_pipeline(ingest_port, slate_path).and_then(|pipeline| main_loop(pipeline)) {
+    let app_info = AppInfo::from_args();
+    match create_pipeline(app_info.ingest_port, app_info.slate_path).and_then(|pipeline| main_loop(pipeline)) {
         Ok(r) => r,
         Err(e) => eprintln!("Error! {}", e),
     }
