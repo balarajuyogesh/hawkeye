@@ -1,3 +1,4 @@
+use color_eyre::Result;
 use dssim::{DssimImage, ToRGBAPLU, RGBAPLU};
 use imgref::{Img, ImgVec};
 use load_image::{Image, ImageData};
@@ -11,7 +12,7 @@ pub struct SlateDetector {
 }
 
 impl SlateDetector {
-    pub fn new<P: AsRef<Path>>(slate_path: P) -> Result<Self, anyhow::Error> {
+    pub fn new<P: AsRef<Path>>(slate_path: P) -> Result<Self> {
         let similarity_algorithm = dssim::Dssim::new();
         let slate_img = load_path(slate_path)?;
         let slate = similarity_algorithm.create_image(&slate_img).unwrap();
@@ -40,12 +41,12 @@ impl SlateDetector {
     }
 }
 
-fn load_data(data: &[u8]) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
+fn load_data(data: &[u8]) -> Result<ImgVec<RGBAPLU>> {
     let img = load_image::load_image_data(data, false)?;
     Ok(match_img_bitmap(img))
 }
 
-fn load_path<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
+fn load_path<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>> {
     let img = load_image::load_image(path.as_ref(), false)?;
     Ok(match_img_bitmap(img))
 }
