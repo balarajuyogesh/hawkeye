@@ -75,6 +75,8 @@ pub fn create_pipeline(detector: SlateDetector, ingest_port: u32) -> Result<gst:
                     gst::FlowError::Error
                 })?;
 
+                println!("Got an image..");
+
                 if detector.is_match(buffer.as_slice()) {
                     println!("Found slate!");
                     return Err(FlowError::Eos);
