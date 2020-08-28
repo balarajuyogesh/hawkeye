@@ -41,16 +41,16 @@ mod runloop {
 /// On other platforms it's just executed immediately.
 #[cfg(not(target_os = "macos"))]
 pub fn run<T, F: FnOnce() -> T + Send + 'static>(main: F) -> T
-    where
-        T: Send + 'static,
+where
+    T: Send + 'static,
 {
     main()
 }
 
 #[cfg(target_os = "macos")]
 pub fn run<T, F: FnOnce() -> T + Send + 'static>(main: F) -> T
-    where
-        T: Send + 'static,
+where
+    T: Send + 'static,
 {
     use std::thread;
 

@@ -1,30 +1,15 @@
-// This example demonstrates how to get a raw video frame at a given position
-// and then rescale and store it with the image crate:
-
-// {uridecodebin} - {videoconvert} - {appsink}
-
-// The appsink enforces RGBA so that the image crate can use it. The image crate also requires
-// tightly packed pixels, which is the case for RGBA by default in GStreamer.
-//
 // Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/examples/src/bin/thumbnail.rs
-
-extern crate gstreamer as gst;
-use gst::{gst_element_error, FlowSuccess, FlowError};
-use gst::prelude::*;
-extern crate gstreamer_app as gst_app;
-extern crate gstreamer_video as gst_video;
-
-extern crate image;
-
-use anyhow::Error;
-use derive_more::{Display, Error};
-use dssim::*;
-use structopt::StructOpt;
-use imgref::*;
-use std::path::{Path, PathBuf};
-use load_image::{ImageData, Image};
-
 mod examples_common;
+mod img_detector;
+
+use derive_more::{Display, Error};
+use gst::prelude::*;
+use gst::{gst_element_error, FlowError, FlowSuccess};
+use gstreamer as gst;
+use gstreamer_app as gst_app;
+use img_detector::SlateDetector;
+use std::path::PathBuf;
+use structopt::StructOpt;
 
 #[derive(Debug, Display, Error)]
 #[display(fmt = "Missing element {}", _0)]
@@ -39,42 +24,18 @@ struct ErrorMessage {
     source: glib::Error,
 }
 
-fn load_data(data: &[u8]) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
-    let img = load_image::load_image_data(data, false)?;
-    Ok(match_img_bitmap(img))
-}
-
-fn load_path<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>, anyhow::Error> {
-    let img = load_image::load_image(path.as_ref(), false)?;
-    Ok(match_img_bitmap(img))
-}
-
-fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
-    match img.bitmap {
-        ImageData::RGB8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::RGB16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::RGBA8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::RGBA16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::GRAY8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::GRAY16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::GRAYA8(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-        ImageData::GRAYA16(ref bitmap) => Img::new(bitmap.to_rgbaplu(), img.width, img.height),
-    }
-}
-
-fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst::Pipeline, Error> {
-    gst::init()?;
-
-    let algo = dssim::Dssim::new();
-    let slate_img = load_path(slate_img)?;
-    let slate = algo.create_image(&slate_img).unwrap();
+fn create_pipeline(
+    detector: SlateDetector,
+    ingest_port: u32,
+) -> Result<gst::Pipeline, anyhow::Error> {
+    let (width, height) = detector.required_image_size();
 
     // Create our pipeline from a pipeline description string.
     let pipeline = gst::parse_launch(&format!(
         "udpsrc port={} address=0.0.0.0 caps = \"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
         ingest_port,
-        slate_img.width(),
-        slate_img.height()
+        width,
+        height
     ))?
         .downcast::<gst::Pipeline>()
         .expect("Expected a gst::Pipeline");
@@ -123,14 +84,8 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
 
                     gst::FlowError::Error
                 })?;
-                let frame_img = load_data(buffer.as_slice()).unwrap();
-                let frame = algo.create_image(&frame_img).unwrap();
 
-                let (res, _) = algo.compare(&slate, frame);
-                let val: f64 = res.into();
-                let val = (val * 1000f64) as u32;
-
-                if val <= 900u32 {
+                if detector.is_match(buffer.as_slice()) {
                     println!("Found slate!");
                     return Err(FlowError::Eos);
                 }
@@ -143,7 +98,7 @@ fn create_pipeline<P: AsRef<Path>>(ingest_port: u32, slate_img: P) -> Result<gst
     Ok(pipeline)
 }
 
-fn main_loop(pipeline: gst::Pipeline) -> Result<(), Error> {
+fn main_loop(pipeline: gst::Pipeline) -> Result<(), anyhow::Error> {
     pipeline.set_state(gst::State::Paused)?;
 
     let bus = pipeline
@@ -160,7 +115,7 @@ fn main_loop(pipeline: gst::Pipeline) -> Result<(), Error> {
             MessageView::AsyncDone(..) => {}
             MessageView::Eos(..) => {
                 // The End-of-stream message is posted when the stream is done, which in our case
-                // happens immediately after creating the thumbnail because we return
+                // happens immediately after matching the slate image because we return
                 // gst::FlowError::Eos then.
                 println!("Got Eos message, done");
                 break;
@@ -176,7 +131,7 @@ fn main_loop(pipeline: gst::Pipeline) -> Result<(), Error> {
                     debug: err.get_debug(),
                     source: err.get_error(),
                 }
-                    .into());
+                .into());
             }
             _ => (),
         }
@@ -196,9 +151,11 @@ fn parse_url(url: &str) -> Result<String, anyhow::Error> {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "video-slate-detector", about = "Detects slate image and triggers URL request.")]
+#[structopt(
+    name = "video-slate-detector",
+    about = "Detects slate image and triggers URL request."
+)]
 struct AppInfo {
-
     // Path to the slate image
     #[structopt(parse(from_os_str))]
     slate_path: PathBuf,
@@ -221,7 +178,12 @@ struct AppInfo {
 
 fn example_main() {
     let app_info = AppInfo::from_args();
-    match create_pipeline(app_info.ingest_port, app_info.slate_path).and_then(|pipeline| main_loop(pipeline)) {
+
+    gst::init().expect("Could not initialize GStreamer!");
+
+    let detector = SlateDetector::new(app_info.slate_path).unwrap();
+
+    match create_pipeline(detector, app_info.ingest_port).and_then(main_loop) {
         Ok(r) => r,
         Err(e) => eprintln!("Error! {}", e),
     }
@@ -231,41 +193,4 @@ fn main() {
     // tutorials_common::run is only required to set up the application environment on macOS
     // (but not necessary in normal Cocoa applications where this is set up automatically)
     examples_common::run(example_main);
-}
-
-#[cfg(test)]
-mod test {
-    use dssim::*;
-    use imgref::*;
-    use std::path::Path;
-    use load_image::ImageData;
-    use super::*;
-
-    #[test]
-    fn compare_equal_images() {
-        let slate_img = load_path("../slate.jpg").unwrap();
-
-        let algo = dssim::Dssim::new();
-        let slate = algo.create_image(&slate_img).unwrap();
-
-        let (res, _) = algo.compare(&slate, slate.clone());
-        let val: f64 = res.into();
-
-        assert_eq!((val * 1000f64) as u32, 0u32);
-    }
-
-    #[test]
-    fn compare_diff_images() {
-        let slate_img = load_path("../slate.jpg").unwrap();
-        let frame_img = load_path("../non-slate.jpg").unwrap();
-
-        let algo = dssim::Dssim::new();
-        let slate = algo.create_image(&slate_img).unwrap();
-        let frame = algo.create_image(&frame_img).unwrap();
-
-        let (res, _) = algo.compare(&slate, frame);
-        let val: f64 = res.into();
-
-        assert_eq!((val * 1000f64) as u32, 7417u32);
-    }
 }
