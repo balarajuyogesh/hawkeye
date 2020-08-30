@@ -4,9 +4,11 @@ use crate::img_detector::SlateDetector;
 use color_eyre::Result;
 use derive_more::{Display, Error};
 use gst::prelude::*;
-use gst::{gst_element_error, FlowError, FlowSuccess};
+use gst::{gst_element_error, FlowSuccess};
 use gstreamer as gst;
 use gstreamer_app as gst_app;
+use log::{debug, info};
+use std::sync::mpsc::Sender;
 
 #[derive(Debug, Display, Error)]
 #[display(fmt = "Received error from {}: {} (debug: {:?})", src, error, debug)]
@@ -17,10 +19,15 @@ struct ErrorMessage {
     source: glib::Error,
 }
 
-pub fn create_pipeline(detector: SlateDetector, ingest_port: u32) -> Result<gst::Pipeline> {
+pub fn create_pipeline(
+    detector: SlateDetector,
+    ingest_port: u32,
+    action_sink: Sender<bool>,
+) -> Result<gst::Pipeline> {
     let (width, height) = detector.required_image_size();
 
     // Create our pipeline from a pipeline description string.
+    debug!("Creating GStreamer Pipeline..");
     let pipeline = gst::parse_launch(&format!(
         "udpsrc port={} caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)MP2T, payload=(int)33\" ! .recv_rtp_sink_0 rtpbin ! rtpmp2tdepay ! tsdemux ! h264parse ! avdec_h264 ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
         ingest_port,
@@ -75,11 +82,11 @@ pub fn create_pipeline(detector: SlateDetector, ingest_port: u32) -> Result<gst:
                     gst::FlowError::Error
                 })?;
 
-                println!("Got an image..");
-
                 if detector.is_match(buffer.as_slice()) {
-                    println!("Found slate!");
-                    return Err(FlowError::Eos);
+                    debug!("Found slate image in video stream!");
+                    action_sink.send(false).unwrap();
+                } else {
+                    debug!("Did not find slate..");
                 }
 
                 Ok(FlowSuccess::Ok)
@@ -90,7 +97,7 @@ pub fn create_pipeline(detector: SlateDetector, ingest_port: u32) -> Result<gst:
     Ok(pipeline)
 }
 
-pub fn main_loop(pipeline: gst::Pipeline) -> Result<()> {
+pub fn main_loop(pipeline: gst::Pipeline, action_sink: Sender<bool>) -> Result<()> {
     pipeline.set_state(gst::State::Paused)?;
 
     let bus = pipeline
@@ -98,7 +105,7 @@ pub fn main_loop(pipeline: gst::Pipeline) -> Result<()> {
         .expect("Pipeline without bus. Shouldn't happen!");
 
     pipeline.set_state(gst::State::Playing)?;
-    println!("Pipeline started...");
+    info!("Pipeline started...");
 
     for msg in bus.iter_timed(gst::CLOCK_TIME_NONE) {
         use gst::MessageView;
@@ -109,7 +116,8 @@ pub fn main_loop(pipeline: gst::Pipeline) -> Result<()> {
                 // The End-of-stream message is posted when the stream is done, which in our case
                 // happens immediately after matching the slate image because we return
                 // gst::FlowError::Eos then.
-                println!("Got Eos message, done");
+                info!("Got Eos message, done");
+                action_sink.send(true)?;
                 break;
             }
             MessageView::Error(err) => {
