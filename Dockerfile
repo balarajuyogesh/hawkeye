@@ -10,4 +10,5 @@ COPY Cargo.toml /Cargo.toml
 COPY Cargo.lock /Cargo.lock
 COPY src /src
 RUN cargo build --release
+ENV RUST_LOG=INFO
 ENTRYPOINT ["/target/release/video-slate-detector"]
