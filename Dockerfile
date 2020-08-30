@@ -10,5 +10,4 @@ COPY Cargo.toml /Cargo.toml
 COPY Cargo.lock /Cargo.lock
 COPY src /src
 RUN cargo build --release
-ENV GST_DEBUG=2
 ENTRYPOINT ["/target/release/video-slate-detector"]
