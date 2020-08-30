@@ -14,6 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use video_stream::{create_pipeline, main_loop};
+use reqwest::header::CONTENT_TYPE;
 
 struct HttpCallManager {
     client: Client,
@@ -64,6 +65,7 @@ impl HttpCallManager {
                 .client
                 .request(self.method.clone(), &self.url)
                 .basic_auth(&self.username, Some(&self.password))
+                .header(CONTENT_TYPE, "application/json")
                 .body(self.payload.clone())
                 .timeout(Duration::from_secs(5))
                 .send()?
