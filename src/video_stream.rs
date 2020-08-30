@@ -22,7 +22,7 @@ pub fn create_pipeline(detector: SlateDetector, ingest_port: u32) -> Result<gst:
 
     // Create our pipeline from a pipeline description string.
     let pipeline = gst::parse_launch(&format!(
-        "udpsrc port={} ! application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)MP2T,payload=(int)96 ! .recv_rtp_sink_0 rtpbin buffer-mode=0 ! rtpmp2tdepay ! tsdemux ! h264parse ! avdec_h264 ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
+        "udpsrc port={} ! application/x-rtp,media=(string)video,clock-rate=(int)90000,encoding-name=(string)MP2T,payload=(int)33 ! .recv_rtp_sink_0 rtpbin buffer-mode=0 ! rtpmp2tdepay ! tsdemux ! h264parse ! avdec_h264 ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
         ingest_port,
         width,
         height
