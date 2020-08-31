@@ -39,7 +39,7 @@ impl HttpCallManager {
             payload,
             last_call: None,
             last_mode: None,
-            action_max_duration: Duration::from_secs(120),
+            action_max_duration: Duration::from_secs(300),
             receiver,
         }
     }
