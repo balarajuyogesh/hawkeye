@@ -6,15 +6,15 @@ use color_eyre::Result;
 use config::AppConfig;
 use gstreamer as gst;
 use img_detector::SlateDetector;
-use log::{debug, info};
+use log::{debug, error, info};
 use reqwest::blocking::Client;
+use reqwest::header::CONTENT_TYPE;
 use reqwest::Method;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 use structopt::StructOpt;
 use video_stream::{create_pipeline, main_loop};
-use reqwest::header::CONTENT_TYPE;
 
 struct HttpCallManager {
     client: Client,
@@ -24,6 +24,7 @@ struct HttpCallManager {
     password: String,
     payload: String,
     last_call: Option<Instant>,
+    call_delay: Duration,
     receiver: Receiver<bool>,
 }
 
@@ -34,6 +35,7 @@ impl HttpCallManager {
         username: String,
         password: String,
         payload: String,
+        call_delay: Duration,
         receiver: Receiver<bool>,
     ) -> Self {
         let client = Client::new();
@@ -45,6 +47,7 @@ impl HttpCallManager {
             password,
             payload,
             last_call: None,
+            call_delay,
             receiver,
         }
     }
@@ -55,13 +58,11 @@ impl HttpCallManager {
                 break;
             }
 
-            if self.last_call.is_some()
-                && self.last_call.unwrap().elapsed() < Duration::from_secs(145)
-            {
+            if self.last_call.is_some() && self.last_call.unwrap().elapsed() < self.call_delay {
                 continue;
             }
 
-            let _ = self
+            if let Err(err) = self
                 .client
                 .request(self.method.clone(), &self.url)
                 .basic_auth(&self.username, Some(&self.password))
@@ -69,9 +70,12 @@ impl HttpCallManager {
                 .body(self.payload.clone())
                 .timeout(Duration::from_secs(5))
                 .send()?
-                .error_for_status()?;
-
-            self.last_call = Some(Instant::now());
+                .error_for_status()
+            {
+                error!("Problem while calling backend API: {}", err);
+            } else {
+                self.last_call = Some(Instant::now());
+            }
         }
         Ok(())
     }
@@ -100,6 +104,7 @@ fn main() -> Result<()> {
         user_pass[0].to_string(),
         user_pass[1].to_string(),
         config.payload,
+        Duration::from_secs(config.call_delay_seconds),
         receiver,
     );
 

@@ -25,8 +25,13 @@ pub struct AppConfig {
     #[structopt(short = "m", long = "http-method", parse(try_from_str = parse_method))]
     pub method: Method,
 
+    // The raw payload that should be sent to the backend API
     #[structopt(short = "p", long = "payload", default_value = "")]
     pub payload: String,
+
+    // The default minimum delay between backend API calls in seconds
+    #[structopt(short = "d", long = "api-call-delay", default_value = "30")]
+    pub call_delay_seconds: u64,
 }
 
 fn parse_url(url: &str) -> Result<String> {
