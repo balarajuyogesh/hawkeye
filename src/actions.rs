@@ -47,6 +47,10 @@ impl HttpCallManager {
             match self.receiver.recv()? {
                 None => break,
                 Some(mode) => {
+                    if self.last_call.is_some() && self.last_call.as_ref().unwrap().elapsed() < Duration::from_secs(10) {
+                        // Waits at least 10 seconds before any kind of transitioning
+                        continue;
+                    }
                     match (&self.last_mode, &mode) {
                         (Some(VideoMode::Content), VideoMode::Slate) => {
                             self.transition_to_slate();
