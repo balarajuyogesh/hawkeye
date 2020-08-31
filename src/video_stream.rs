@@ -19,10 +19,15 @@ struct ErrorMessage {
     source: glib::Error,
 }
 
+pub enum VideoMode {
+    Slate,
+    Content,
+}
+
 pub fn create_pipeline(
     detector: SlateDetector,
     ingest_port: u32,
-    action_sink: Sender<bool>,
+    action_sink: Sender<Option<VideoMode>>,
 ) -> Result<gst::Pipeline> {
     let (width, height) = detector.required_image_size();
 
@@ -84,8 +89,9 @@ pub fn create_pipeline(
 
                 if detector.is_match(buffer.as_slice()) {
                     debug!("Found slate image in video stream!");
-                    action_sink.send(false).unwrap();
+                    action_sink.send(Some(VideoMode::Slate)).unwrap();
                 } else {
+                    action_sink.send(Some(VideoMode::Content)).unwrap();
                     debug!("Did not find slate..");
                 }
 
@@ -97,7 +103,7 @@ pub fn create_pipeline(
     Ok(pipeline)
 }
 
-pub fn main_loop(pipeline: gst::Pipeline, action_sink: Sender<bool>) -> Result<()> {
+pub fn main_loop(pipeline: gst::Pipeline, action_sink: Sender<Option<VideoMode>>) -> Result<()> {
     pipeline.set_state(gst::State::Paused)?;
 
     let bus = pipeline
@@ -117,7 +123,7 @@ pub fn main_loop(pipeline: gst::Pipeline, action_sink: Sender<bool>) -> Result<(
                 // happens immediately after matching the slate image because we return
                 // gst::FlowError::Eos then.
                 info!("Got Eos message, done");
-                action_sink.send(true)?;
+                action_sink.send(None)?;
                 break;
             }
             MessageView::Error(err) => {
