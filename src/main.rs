@@ -62,6 +62,8 @@ impl HttpCallManager {
                 continue;
             }
 
+            let start_api_call = Instant::now();
+
             if let Err(err) = self
                 .client
                 .request(self.method.clone(), &self.url)
@@ -76,6 +78,8 @@ impl HttpCallManager {
             } else {
                 self.last_call = Some(Instant::now());
             }
+
+            info!("HTTP call to backend API took: {}ms", start_api_call.elapsed().as_millis());
         }
         Ok(())
     }
