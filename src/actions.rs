@@ -16,6 +16,7 @@ pub struct HttpCallManager {
     payload: String,
     last_call: Option<Instant>,
     last_mode: Option<VideoMode>,
+    action_max_duration: Duration,
     receiver: Receiver<Option<VideoMode>>,
 }
 
@@ -38,6 +39,7 @@ impl HttpCallManager {
             payload,
             last_call: None,
             last_mode: None,
+            action_max_duration: Duration::from_secs(120),
             receiver,
         }
     }
@@ -67,7 +69,15 @@ impl HttpCallManager {
                         (None, VideoMode::Content) => {
                             self.transition_to_content();
                         }
-                        (Some(VideoMode::Slate), VideoMode::Slate) => {}
+                        (Some(VideoMode::Slate), VideoMode::Slate) => {
+                            if self.last_call.is_some()
+                                && self.last_call.as_ref().unwrap().elapsed()
+                                    > self.action_max_duration
+                            {
+                                info!("Slate action expired, we need to call it again!");
+                                self.transition_to_slate();
+                            }
+                        }
                         (Some(VideoMode::Content), VideoMode::Content) => {}
                     }
                     debug!("last_mode = {:?}", &mode);
