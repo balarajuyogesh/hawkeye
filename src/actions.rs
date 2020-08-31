@@ -1,6 +1,6 @@
 use crate::video_stream::VideoMode;
 use color_eyre::Result;
-use log::{error, info};
+use log::{debug, error, info};
 use reqwest::blocking::Client;
 use reqwest::header::CONTENT_TYPE;
 use reqwest::Method;
@@ -50,9 +50,10 @@ impl HttpCallManager {
                     if self.last_call.is_some()
                         && self.last_call.as_ref().unwrap().elapsed() < Duration::from_secs(10)
                     {
-                        // Waits at least 10 seconds before any kind of transitioning
+                        debug!("Wait at least 10 seconds before any kind of transitioning..");
                         continue;
                     }
+                    debug!("{:?} {:?}", &self.last_mode, &mode);
                     match (&self.last_mode, &mode) {
                         (Some(VideoMode::Content), VideoMode::Slate) => {
                             self.transition_to_slate();
@@ -69,6 +70,7 @@ impl HttpCallManager {
                         (Some(VideoMode::Slate), VideoMode::Slate) => {}
                         (Some(VideoMode::Content), VideoMode::Content) => {}
                     }
+                    debug!("last_mode = {:?}", &mode);
                     self.last_mode = Some(mode);
                 }
             }
@@ -92,15 +94,21 @@ impl HttpCallManager {
                 Ok(_) => {
                     if let Some(last_call) = &self.last_call {
                         info!(
-                            "Transitioning to slate after: {}",
-                            last_call.elapsed().as_secs()
+                            "Transitioning to SLATE after: {}ms",
+                            last_call.elapsed().as_millis()
                         );
                     }
                     self.last_call = Some(Instant::now());
                 }
-                Err(err) => error!("Received error from the backend API: {}", err),
+                Err(err) => error!(
+                    "transition_to_slate: Received error from the backend API: {}",
+                    err
+                ),
             },
-            Err(err) => error!("Problem while calling backend API: {}", err),
+            Err(err) => error!(
+                "transition_to_slate: Problem while calling backend API: {}",
+                err
+            ),
         }
 
         info!(
@@ -125,15 +133,21 @@ impl HttpCallManager {
                 Ok(_) => {
                     if let Some(last_call) = &self.last_call {
                         info!(
-                            "Transitioning to content after: {}",
-                            last_call.elapsed().as_secs()
+                            "Transitioning to CONTENT after: {}ms",
+                            last_call.elapsed().as_millis()
                         );
                     }
                     self.last_call = Some(Instant::now());
                 }
-                Err(err) => error!("Received error from the backend API: {}", err),
+                Err(err) => error!(
+                    "transition_to_content: Received error from the backend API: {}",
+                    err
+                ),
             },
-            Err(err) => error!("Problem while calling backend API: {}", err),
+            Err(err) => error!(
+                "transition_to_content: Problem while calling backend API: {}",
+                err
+            ),
         }
 
         info!(

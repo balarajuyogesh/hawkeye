@@ -19,6 +19,7 @@ struct ErrorMessage {
     source: glib::Error,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum VideoMode {
     Slate,
     Content,
