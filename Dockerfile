@@ -11,4 +11,4 @@ COPY Cargo.lock /Cargo.lock
 COPY src /src
 RUN cargo build --release
 ENV RUST_LOG=INFO
-ENTRYPOINT ["/target/release/video-slate-detector"]
+ENTRYPOINT ["/target/release/hawkeye"]

@@ -1,5 +1,5 @@
-# video-slate-detector
-Detect slate in a RTP stream and hit callback
+# Hawkeye
+Detect images in a video stream and execute automated actions.
 
 ## Running with Docker
 
