@@ -1,5 +1,4 @@
 use color_eyre::{eyre::eyre, Result};
-use reqwest::Method;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -22,8 +21,8 @@ pub struct AppConfig {
     pub url: String,
 
     // Method to use in the call
-    #[structopt(short = "m", long = "http-method", parse(try_from_str = parse_method))]
-    pub method: Method,
+    #[structopt(short = "m", long = "http-method", default_value = "POST", possible_values = &["POST", "GET", "DELETE", "PUT", "PATCH"])]
+    pub method: String,
 
     // The raw payload that should be sent to the backend API
     #[structopt(short = "p", long = "payload", default_value = "")]
@@ -36,8 +35,4 @@ fn parse_url(url: &str) -> Result<String> {
     } else {
         Err(eyre!("{} not recognized as a valid URL!", url))
     }
-}
-
-fn parse_method(method_name: &str) -> Result<Method> {
-    Ok(Method::from_bytes(method_name.to_uppercase().as_bytes())?)
 }

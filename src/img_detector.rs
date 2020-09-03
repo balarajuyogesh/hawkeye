@@ -67,10 +67,6 @@ fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use dssim::*;
-    use imgref::*;
-    use load_image::ImageData;
-    use std::path::Path;
 
     #[test]
     fn compare_equal_images() {
