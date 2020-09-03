@@ -23,7 +23,7 @@ color-eyre = "0.5"
 pretty_env_logger = "0.4"
 log = "0.4"
 ureq = "1.4"
-sn_fake_clock = "0.4"
 
 [dev-dependencies]
 sn_fake_clock = "0.4"
+mockito = "0.27"

@@ -182,6 +182,7 @@ impl Action for HttpCall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mockito::{mock, server_url, Matcher};
     use sn_fake_clock::FakeClock;
     use std::cell::Cell;
     use std::rc::Rc;
@@ -302,5 +303,30 @@ mod tests {
 
         // Check the action was called
         assert_eq!(called.get(), true);
+    }
+
+    #[test]
+    fn action_http_call_performs_request() {
+        let method = "POST";
+        let path = "/do-something";
+        let req_body = "{\"duration\":20}";
+
+        let server_action = mock(method, path)
+            .match_body(req_body)
+            .match_header("content-type", "application/json")
+            .match_header("authorization", Matcher::Any)
+            .with_status(202)
+            .create();
+
+        let mut action = HttpCall::new(
+            format!("{}{}", server_url(), path),
+            method.to_string(),
+            "user".to_string(),
+            "pass".to_string(),
+            req_body.to_string(),
+        );
+
+        action.execute().expect("Should execute successfully!");
+        assert!(server_action.matched());
     }
 }
