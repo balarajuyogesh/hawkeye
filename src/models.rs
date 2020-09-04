@@ -74,6 +74,8 @@ pub enum Action {
         authorization: Option<HttpAuth>,
         headers: Option<HashMap<String, String>>,
         body: Option<String>,
+        retries: Option<u8>,
+        timeout: Option<u32>,
     },
 }
 
@@ -125,7 +127,9 @@ mod tests {
                                 password: "something".to_string()
                             }),
                             headers: Some([("Content-Type", "application/json")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect::<HashMap<String, String>>()),
-                            body: Some("{\"duration\":300}".to_string())
+                            body: Some("{\"duration\":300}".to_string()),
+                            retries: Some(3),
+                            timeout: Some(10),
                         }
                     ]
                 },
@@ -142,7 +146,9 @@ mod tests {
                                 password: "something".to_string()
                             }),
                             headers: None,
-                            body: None
+                            body: None,
+                            retries: None,
+                            timeout: Some(10),
                         }
                     ]
                 }

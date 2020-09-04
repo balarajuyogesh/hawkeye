@@ -20,6 +20,8 @@
           "description": "Trigger AdBreak using API",
           "type": "http_call",
           "method": "POST",
+          "retries": 3,
+          "timeout": 10,
           "url": "http://non-existent.cbs.com/v1/organization/cbsa/channel/slate4/ad-break",
           "authorization": {
             "basic": {
@@ -42,6 +44,7 @@
           "description": "Use dump out of AdBreak API call",
           "type": "http_call",
           "method": "DELETE",
+          "timeout": 10,
           "url": "http://non-existent.cbs.com/v1/organization/cbsa/channel/slate4/ad-break",
           "authorization": {
             "basic": {
