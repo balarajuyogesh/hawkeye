@@ -67,32 +67,30 @@ fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::io::Read;
+    use std::path::Path;
+
+    fn read_bytes<P: AsRef<Path>>(path: P) -> Vec<u8> {
+        let mut slate_img =
+            std::fs::File::open(path).expect("We must have this image in the /resources folder");
+        let mut buffer = Vec::new();
+        slate_img.read_to_end(&mut buffer).unwrap();
+        buffer
+    }
 
     #[test]
     fn compare_equal_images() {
-        let slate_img = load_path("../slate.jpg").unwrap();
+        let detector = SlateDetector::new("resources/slate_120px.jpg").unwrap();
+        let slate_img = read_bytes("resources/slate_120px.jpg");
 
-        let algo = dssim::Dssim::new();
-        let slate = algo.create_image(&slate_img).unwrap();
-
-        let (res, _) = algo.compare(&slate, slate.clone());
-        let val: f64 = res.into();
-
-        assert_eq!((val * 1000f64) as u32, 0u32);
+        assert!(detector.is_match(slate_img.as_slice()));
     }
 
     #[test]
     fn compare_diff_images() {
-        let slate_img = load_path("../slate.jpg").unwrap();
-        let frame_img = load_path("../non-slate.jpg").unwrap();
+        let detector = SlateDetector::new("resources/slate_120px.jpg").unwrap();
+        let frame_img = read_bytes("resources/non-slate_120px.jpg");
 
-        let algo = dssim::Dssim::new();
-        let slate = algo.create_image(&slate_img).unwrap();
-        let frame = algo.create_image(&frame_img).unwrap();
-
-        let (res, _) = algo.compare(&slate, frame);
-        let val: f64 = res.into();
-
-        assert_eq!((val * 1000f64) as u32, 7417u32);
+        assert_eq!(detector.is_match(frame_img.as_slice()), false);
     }
 }
