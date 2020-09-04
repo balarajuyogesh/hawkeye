@@ -1,6 +1,7 @@
 mod actions;
 mod config;
 mod img_detector;
+mod models;
 mod video_stream;
 
 use crate::actions::{ActionExecutor, HttpCall, Transition};

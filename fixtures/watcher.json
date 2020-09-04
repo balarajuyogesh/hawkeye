@@ -1,0 +1,56 @@
+{
+  "id": "ee21fc9a-7225-450b-a2a7-2faf914e35b8",
+  "description": "UEFA 2020 - Lyon vs. Bayern",
+  "slate_url": "http://thumbor.cbs.com/orignal/hawkeye/video-slate.jpg",
+  "status": "running",
+  "source": {
+    "ingest_port": 5000,
+    "container": "mpeg-ts",
+    "codec": "h264",
+    "transport": {
+      "protocol": "rtp"
+    }
+  },
+  "transitions": [
+    {
+      "from": "content",
+      "to": "slate",
+      "actions": [
+        {
+          "description": "Trigger AdBreak using API",
+          "type": "http_call",
+          "method": "POST",
+          "url": "http://non-existent.cbs.com/v1/organization/cbsa/channel/slate4/ad-break",
+          "authorization": {
+            "basic": {
+              "username": "dev_user",
+              "password": "something"
+            }
+          },
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{\"duration\":300}"
+        }
+      ]
+    },
+    {
+      "from": "slate",
+      "to": "content",
+      "actions": [
+        {
+          "description": "Use dump out of AdBreak API call",
+          "type": "http_call",
+          "method": "DELETE",
+          "url": "http://non-existent.cbs.com/v1/organization/cbsa/channel/slate4/ad-break",
+          "authorization": {
+            "basic": {
+              "username": "dev_user",
+              "password": "something"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
