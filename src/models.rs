@@ -1,6 +1,11 @@
+use color_eyre::{eyre::eyre, Result};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::Read;
+use std::time::Duration;
 
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -8,9 +13,44 @@ pub struct Watcher {
     pub id: Option<String>,
     pub description: Option<String>,
     pub slate_url: String,
-    pub status: Status,
+    pub status: Option<Status>,
     pub source: Source,
     pub transitions: Vec<Transition>,
+}
+
+impl Watcher {
+    pub fn is_valid(&self) -> Result<()> {
+        if self.slate_url.starts_with("http://")
+            || self.slate_url.starts_with("https://")
+            || self.slate_url.starts_with("file://")
+        {
+            Ok(self.source.is_valid()?)
+        } else {
+            Err(eyre!("{} not recognized as a valid URL!", self.slate_url))
+        }
+    }
+
+    pub fn slate(&self) -> Result<Box<dyn Read>> {
+        if self.slate_url.starts_with("http://") || self.slate_url.starts_with("https://") {
+            debug!("Loading slate from url");
+            let res = ureq::get(self.slate_url.as_str())
+                .timeout(Duration::from_secs(10))
+                .timeout_connect(500)
+                .call();
+            if res.error() {
+                return Err(color_eyre::eyre::eyre!(
+                    "HTTP error ({}) while calling URL of backend: {}",
+                    res.status(),
+                    self.slate_url
+                ));
+            }
+            Ok(Box::new(res.into_reader()))
+        } else {
+            debug!("Loading slate from file");
+            let path = self.slate_url.replace("file://", "");
+            Ok(Box::new(File::open(path)?))
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -27,6 +67,19 @@ pub struct Source {
     pub container: Container,
     pub codec: Codec,
     pub transport: Protocol,
+}
+
+impl Source {
+    fn is_valid(&self) -> Result<()> {
+        if self.ingest_port > 1024 && self.ingest_port < 60_000 {
+            Ok(())
+        } else {
+            Err(eyre!(
+                "Source port {} is not in within the valid range (1024-60000)",
+                self.ingest_port
+            ))
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -76,7 +129,7 @@ pub enum Action {
 #[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FakeAction {
-    pub(crate) called:  std::rc::Rc<std::cell::Cell<bool>>,
+    pub(crate) called: std::rc::Rc<std::cell::Cell<bool>>,
     pub(crate) execute_returns: Option<Result<(), ()>>,
 }
 
@@ -147,7 +200,7 @@ mod tests {
             id: Some("ee21fc9a-7225-450b-a2a7-2faf914e35b8".to_string()),
             description: Some("UEFA 2020 - Lyon vs. Bayern".to_string()),
             slate_url: "http://thumbor.cbs.com/orignal/hawkeye/video-slate.jpg".to_string(),
-            status: Status::Running,
+            status: Some(Status::Running),
             source: Source {
                 ingest_port: 5000,
                 container: Container::MpegTs,
@@ -195,6 +248,24 @@ mod tests {
                 }
             ]
         }
+    }
+
+    #[test]
+    fn check_slate_url_is_url() {
+        let mut w = get_watcher();
+        assert!(w.is_valid().is_ok());
+
+        w.slate_url = String::from("something else");
+        assert!(w.is_valid().is_err());
+    }
+
+    #[test]
+    fn check_source_port_is_in_range() {
+        let mut w = get_watcher();
+        assert!(w.is_valid().is_ok());
+
+        w.source.ingest_port = 1000;
+        assert!(w.is_valid().is_err());
     }
 
     #[test]

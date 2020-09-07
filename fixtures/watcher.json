@@ -1,7 +1,7 @@
 {
   "id": "ee21fc9a-7225-450b-a2a7-2faf914e35b8",
   "description": "UEFA 2020 - Lyon vs. Bayern",
-  "slate_url": "http://thumbor.cbs.com/orignal/hawkeye/video-slate.jpg",
+  "slate_url": "https://github.com/cbsinteractive/hawkeye/raw/master/resources/slate_120px.jpg",
   "status": "running",
   "source": {
     "ingest_port": 5000,

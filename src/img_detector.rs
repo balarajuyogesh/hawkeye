@@ -2,7 +2,7 @@ use color_eyre::Result;
 use dssim::{DssimImage, ToRGBAPLU, RGBAPLU};
 use imgref::{Img, ImgVec};
 use load_image::{Image, ImageData};
-use std::path::Path;
+use std::io::Read;
 
 pub struct SlateDetector {
     width: usize,
@@ -12,9 +12,11 @@ pub struct SlateDetector {
 }
 
 impl SlateDetector {
-    pub fn new<P: AsRef<Path>>(slate_path: P) -> Result<Self> {
+    pub fn new<R: Read>(slate: &mut R) -> Result<Self> {
+        let mut buffer = Vec::new();
+        slate.read_to_end(&mut buffer).unwrap();
         let similarity_algorithm = dssim::Dssim::new();
-        let slate_img = load_path(slate_path)?;
+        let slate_img = load_data(buffer.as_slice())?;
         let slate = similarity_algorithm.create_image(&slate_img).unwrap();
 
         Ok(Self {
@@ -43,11 +45,6 @@ impl SlateDetector {
 
 fn load_data(data: &[u8]) -> Result<ImgVec<RGBAPLU>> {
     let img = load_image::load_image_data(data, false)?;
-    Ok(match_img_bitmap(img))
-}
-
-fn load_path<P: AsRef<Path>>(path: P) -> Result<ImgVec<RGBAPLU>> {
-    let img = load_image::load_image(path.as_ref(), false)?;
     Ok(match_img_bitmap(img))
 }
 
@@ -80,7 +77,8 @@ mod test {
 
     #[test]
     fn compare_equal_images() {
-        let detector = SlateDetector::new("resources/slate_120px.jpg").unwrap();
+        let slate = read_bytes("resources/slate_120px.jpg");
+        let detector = SlateDetector::new(slate).unwrap();
         let slate_img = read_bytes("resources/slate_120px.jpg");
 
         assert!(detector.is_match(slate_img.as_slice()));
@@ -88,7 +86,8 @@ mod test {
 
     #[test]
     fn compare_diff_images() {
-        let detector = SlateDetector::new("resources/slate_120px.jpg").unwrap();
+        let slate = read_bytes("resources/slate_120px.jpg");
+        let detector = SlateDetector::new(slate).unwrap();
         let frame_img = read_bytes("resources/non-slate_120px.jpg");
 
         assert_eq!(detector.is_match(frame_img.as_slice()), false);
