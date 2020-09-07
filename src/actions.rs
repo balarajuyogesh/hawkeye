@@ -1,9 +1,11 @@
-use crate::video_stream::{Event, VideoMode};
+use crate::models::{Action, HttpAuth, HttpCall, VideoMode};
+use crate::video_stream::Event;
 use color_eyre::Result;
 use log::{debug, error, info};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
+use crate::models;
 #[cfg(test)]
 use sn_fake_clock::FakeClock as Instant;
 #[cfg(not(test))]
@@ -12,9 +14,14 @@ use std::time::Instant;
 /// Abstract behaviour of an Hawkeye Action.
 ///
 /// New actions can implement this trait and will be ready to be used with video watchers.
-pub trait Action {
+impl Action {
     fn execute(&mut self) -> Result<()> {
-        Ok(())
+        match self {
+            Action::HttpCall(a) => a.execute(),
+
+            #[cfg(test)]
+            Action::FakeAction(a) => a.execute(),
+        }
     }
 }
 
@@ -33,14 +40,14 @@ impl Transition {
 /// The `ActionExecutor` abstracts the logic of execution that is inherent to all `Action` types.
 pub struct ActionExecutor {
     transition: Transition,
-    action: Box<dyn Action>,
+    action: Action,
     last_mode: Option<VideoMode>,
     last_call: Option<Instant>,
 }
 
 impl ActionExecutor {
     /// Creates a new `ActionExecutor` instance
-    pub fn new(transition: Transition, action: Box<dyn Action>) -> Self {
+    pub fn new(transition: Transition, action: Action) -> Self {
         Self {
             transition,
             action,
@@ -92,6 +99,17 @@ impl ActionExecutor {
     }
 }
 
+impl From<models::Transition> for Vec<ActionExecutor> {
+    fn from(transition: models::Transition) -> Self {
+        let target_transition = Transition(transition.from, transition.to);
+        transition
+            .actions
+            .into_iter()
+            .map(|action| ActionExecutor::new(target_transition.clone(), action))
+            .collect()
+    }
+}
+
 pub struct Runtime {
     receiver: Receiver<Event>,
     actions: Vec<ActionExecutor>,
@@ -120,43 +138,33 @@ impl Runtime {
     }
 }
 
-pub struct HttpCall {
-    url: String,
-    method: String,
-    username: String,
-    password: String,
-    payload: Option<String>,
-}
-
 impl HttpCall {
-    pub fn new(
-        url: String,
-        method: String,
-        username: String,
-        password: String,
-        payload: String,
-    ) -> Self {
-        HttpCall {
-            url,
-            method,
-            username,
-            password,
-            payload: Some(payload),
-        }
-    }
-}
-
-impl Action for HttpCall {
     fn execute(&mut self) -> Result<()> {
         let start_api_call = Instant::now();
 
-        let response = ureq::request(self.method.as_str(), self.url.as_str())
-            .auth(self.username.as_str(), self.password.as_str())
-            .timeout_connect(500)
-            .set("content-type", "application/json")
-            .timeout(Duration::from_secs(10))
-            .send_string(self.payload.as_ref().unwrap().clone().as_str());
+        let method = self.method.to_string();
+        let mut request = ureq::request(&method, self.url.as_str());
 
+        request.timeout_connect(500);
+
+        if let Some(HttpAuth::Basic { username, password }) = &self.authorization {
+            request.auth(username, password);
+        }
+
+        if let Some(timeout) = &self.timeout {
+            request.timeout(Duration::from_secs(*timeout as u64));
+        }
+
+        if let Some(headers) = &self.headers {
+            for (k, v) in headers.iter() {
+                request.set(k, v);
+            }
+        }
+
+        let response = match self.body.as_ref() {
+            Some(data) => request.send_string(data),
+            None => request.call(),
+        };
         if response.ok() {
             debug!(
                 "Successfully called backend API {}",
@@ -182,29 +190,14 @@ impl Action for HttpCall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models;
+    use crate::models::{FakeAction, HttpAuth, HttpMethod};
     use mockito::{mock, server_url, Matcher};
     use sn_fake_clock::FakeClock;
     use std::cell::Cell;
+    use std::collections::HashMap;
     use std::rc::Rc;
     use std::sync::mpsc::channel;
-
-    struct FakeAction {
-        called: Rc<Cell<bool>>,
-        execute_returns: Option<Result<()>>,
-    }
-
-    impl Action for FakeAction {
-        fn execute(&mut self) -> Result<()> {
-            self.called.set(true);
-            if let Some(result) = self.execute_returns.take() {
-                Ok(result?)
-            } else {
-                Err(color_eyre::eyre::eyre!(
-                    "No return value provided for mock!"
-                ))
-            }
-        }
-    }
 
     fn sleep(d: Duration) {
         FakeClock::advance_time(d.as_millis() as u64);
@@ -219,7 +212,7 @@ mod tests {
         };
         let mut executor = ActionExecutor::new(
             Transition::new(VideoMode::Content, VideoMode::Slate),
-            Box::new(fake_action),
+            Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
         // Didn't call since it was the first state found
@@ -239,7 +232,7 @@ mod tests {
         };
         let mut executor = ActionExecutor::new(
             Transition::new(VideoMode::Content, VideoMode::Slate),
-            Box::new(fake_action),
+            Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
         executor.execute(VideoMode::Slate);
@@ -261,7 +254,7 @@ mod tests {
         };
         let mut executor = ActionExecutor::new(
             Transition::new(VideoMode::Content, VideoMode::Slate),
-            Box::new(fake_action),
+            Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
         executor.execute(VideoMode::Slate);
@@ -287,7 +280,7 @@ mod tests {
         };
         let mut executor = ActionExecutor::new(
             Transition::new(VideoMode::Content, VideoMode::Slate),
-            Box::new(fake_action),
+            Action::FakeAction(fake_action),
         );
         // Prepare executor to be ready in the next call with `VideoMode::Slate`
         executor.execute(VideoMode::Content);
@@ -307,26 +300,65 @@ mod tests {
 
     #[test]
     fn action_http_call_performs_request() {
-        let method = "POST";
         let path = "/do-something";
         let req_body = "{\"duration\":20}";
 
-        let server_action = mock(method, path)
+        let server = mock("POST", path)
             .match_body(req_body)
             .match_header("content-type", "application/json")
             .match_header("authorization", Matcher::Any)
             .with_status(202)
             .create();
 
-        let mut action = HttpCall::new(
-            format!("{}{}", server_url(), path),
-            method.to_string(),
-            "user".to_string(),
-            "pass".to_string(),
-            req_body.to_string(),
-        );
+        let mut action = HttpCall {
+            method: HttpMethod::POST,
+            url: format!("{}{}", server_url(), path),
+            description: None,
+            authorization: Some(HttpAuth::Basic {
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            }),
+            headers: Some(
+                [("content-type", "application/json")]
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect::<HashMap<String, String>>(),
+            ),
+            body: Some(req_body.to_string()),
+            retries: None,
+            timeout: None,
+        };
 
         action.execute().expect("Should execute successfully!");
-        assert!(server_action.matched());
+        assert!(server.matched());
+    }
+
+    #[test]
+    fn build_executor_from_models() {
+        let transition = models::Transition {
+            from: models::VideoMode::Content,
+            to: models::VideoMode::Slate,
+            actions: vec![models::Action::HttpCall(HttpCall {
+                description: Some("Trigger AdBreak using API".to_string()),
+                method: HttpMethod::POST,
+                url: "http://non-existent.cbsi.com/v1/organization/cbsa/channel/sl/ad-break"
+                    .to_string(),
+                authorization: Some(HttpAuth::Basic {
+                    username: "dev_user".to_string(),
+                    password: "something".to_string(),
+                }),
+                headers: Some(
+                    [("content-type", "application/json")]
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect::<HashMap<String, String>>(),
+                ),
+                body: Some("{\"duration\":320}".to_string()),
+                retries: Some(3),
+                timeout: Some(10),
+            })],
+        };
+
+        let _executors: Vec<ActionExecutor> = transition.into();
     }
 }

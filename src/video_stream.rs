@@ -1,6 +1,7 @@
 // Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/examples/src/bin/thumbnail.rs
 
 use crate::img_detector::SlateDetector;
+use crate::models::VideoMode;
 use color_eyre::Result;
 use derive_more::{Display, Error};
 use gst::prelude::*;
@@ -17,12 +18,6 @@ struct ErrorMessage {
     error: String,
     debug: Option<String>,
     source: glib::Error,
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum VideoMode {
-    Slate,
-    Content,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

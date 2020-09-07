@@ -5,12 +5,12 @@ use std::collections::HashMap;
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Watcher {
-    id: Option<String>,
-    description: Option<String>,
-    slate_url: String,
-    status: Status,
-    source: Source,
-    transitions: Vec<Transition>,
+    pub id: Option<String>,
+    pub description: Option<String>,
+    pub slate_url: String,
+    pub status: Status,
+    pub source: Source,
+    pub transitions: Vec<Transition>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -23,10 +23,10 @@ pub enum Status {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Source {
-    ingest_port: u32,
-    container: Container,
-    codec: Codec,
-    transport: Protocol,
+    pub ingest_port: u32,
+    pub container: Container,
+    pub codec: Codec,
+    pub transport: Protocol,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -51,9 +51,9 @@ pub enum Protocol {
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Transition {
-    from: VideoMode,
-    to: VideoMode,
-    actions: Vec<Action>,
+    pub from: VideoMode,
+    pub to: VideoMode,
+    pub actions: Vec<Action>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -63,20 +63,49 @@ pub enum VideoMode {
     Content,
 }
 
-#[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
-    HttpCall {
-        method: HttpMethod,
-        url: String,
-        description: Option<String>,
-        authorization: Option<HttpAuth>,
-        headers: Option<HashMap<String, String>>,
-        body: Option<String>,
-        retries: Option<u8>,
-        timeout: Option<u32>,
-    },
+    HttpCall(HttpCall),
+
+    #[cfg(test)]
+    #[serde(skip_serializing, skip_deserializing)]
+    FakeAction(FakeAction),
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FakeAction {
+    pub(crate) called:  std::rc::Rc<std::cell::Cell<bool>>,
+    pub(crate) execute_returns: Option<Result<(), ()>>,
+}
+
+#[cfg(test)]
+impl FakeAction {
+    pub(crate) fn execute(&mut self) -> color_eyre::Result<()> {
+        self.called.set(true);
+        if let Some(result) = self.execute_returns.take() {
+            match result {
+                Ok(()) => Ok(()),
+                Err(_) => Err(color_eyre::Report::msg("Err")),
+            }
+        } else {
+            Err(color_eyre::Report::msg("Err"))
+        }
+    }
+}
+
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct HttpCall {
+    pub(crate) method: HttpMethod,
+    pub(crate) url: String,
+    pub(crate) description: Option<String>,
+    pub(crate) authorization: Option<HttpAuth>,
+    pub(crate) headers: Option<HashMap<String, String>>,
+    pub(crate) body: Option<String>,
+    pub(crate) retries: Option<u8>,
+    pub(crate) timeout: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -86,6 +115,18 @@ pub enum HttpMethod {
     PUT,
     PATCH,
     DELETE,
+}
+
+impl ToString for HttpMethod {
+    fn to_string(&self) -> String {
+        match self {
+            HttpMethod::POST => "POST".to_string(),
+            HttpMethod::GET => "GET".to_string(),
+            HttpMethod::PUT => "PUT".to_string(),
+            HttpMethod::PATCH => "PATCH".to_string(),
+            HttpMethod::DELETE => "DELETE".to_string(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -118,7 +159,7 @@ mod tests {
                     from: VideoMode::Content,
                     to: VideoMode::Slate,
                     actions: vec![
-                        Action::HttpCall {
+                        Action::HttpCall( HttpCall {
                             description: Some("Trigger AdBreak using API".to_string()),
                             method: HttpMethod::POST,
                             url: "http://non-existent.cbs.com/v1/organization/cbsa/channel/slate4/ad-break".to_string(),
@@ -130,14 +171,14 @@ mod tests {
                             body: Some("{\"duration\":300}".to_string()),
                             retries: Some(3),
                             timeout: Some(10),
-                        }
+                        })
                     ]
                 },
                 Transition {
                     from: VideoMode::Slate,
                     to: VideoMode::Content,
                     actions: vec![
-                        Action::HttpCall {
+                        Action::HttpCall( HttpCall {
                             description: Some("Use dump out of AdBreak API call".to_string()),
                             method: HttpMethod::DELETE,
                             url: "http://non-existent.cbs.com/v1/organization/cbsa/channel/slate4/ad-break".to_string(),
@@ -149,7 +190,7 @@ mod tests {
                             body: None,
                             retries: None,
                             timeout: Some(10),
-                        }
+                        })
                     ]
                 }
             ]
