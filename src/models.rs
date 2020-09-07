@@ -127,16 +127,30 @@ pub enum Action {
 }
 
 #[cfg(test)]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct FakeAction {
-    pub(crate) called: std::rc::Rc<std::cell::Cell<bool>>,
+    pub(crate) called: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub(crate) execute_returns: Option<Result<(), ()>>,
 }
 
 #[cfg(test)]
+impl PartialEq for FakeAction {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+
+    fn ne(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+#[cfg(test)]
+impl Eq for FakeAction {}
+
+#[cfg(test)]
 impl FakeAction {
     pub(crate) fn execute(&mut self) -> color_eyre::Result<()> {
-        self.called.set(true);
+        self.called.store(true, std::sync::atomic::Ordering::Release);
         if let Some(result) = self.execute_returns.take() {
             match result {
                 Ok(()) => Ok(()),
@@ -199,7 +213,7 @@ mod tests {
         Watcher {
             id: Some("ee21fc9a-7225-450b-a2a7-2faf914e35b8".to_string()),
             description: Some("UEFA 2020 - Lyon vs. Bayern".to_string()),
-            slate_url: "http://thumbor.cbs.com/orignal/hawkeye/video-slate.jpg".to_string(),
+            slate_url: "https://github.com/cbsinteractive/hawkeye/raw/master/resources/slate_120px.jpg".to_string(),
             status: Some(Status::Running),
             source: Source {
                 ingest_port: 5000,

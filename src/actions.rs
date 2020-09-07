@@ -67,24 +67,19 @@ impl ActionExecutor {
                 ),
             }
         }
+        self.last_mode = Some(mode);
     }
 
     /// Executes the action if the video mode matches the transition and if the action is
     /// allowed to run.
     fn call_action(&mut self, mode: VideoMode) -> Option<Result<()>> {
-        match self.last_mode {
-            None => {
-                self.last_mode = Some(mode);
+        self.last_mode.and_then(|last_mode| {
+            if Transition(last_mode, mode) == self.transition && self.allowed_to_run() {
+                Some(self.action.execute())
+            } else {
                 None
             }
-            Some(last_mode) => {
-                if Transition(last_mode, mode) == self.transition && self.allowed_to_run() {
-                    Some(self.action.execute())
-                } else {
-                    None
-                }
-            }
-        }
+        })
     }
 
     /// Check if the action is allowed to run within the timeframe it was called.
@@ -194,10 +189,10 @@ mod tests {
     use crate::models::{FakeAction, HttpAuth, HttpMethod};
     use mockito::{mock, server_url, Matcher};
     use sn_fake_clock::FakeClock;
-    use std::cell::Cell;
     use std::collections::HashMap;
-    use std::rc::Rc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc::channel;
+    use std::sync::Arc;
 
     fn sleep(d: Duration) {
         FakeClock::advance_time(d.as_millis() as u64);
@@ -205,7 +200,7 @@ mod tests {
 
     #[test]
     fn executor_slate_action_called_when_transition_content_to_slate() {
-        let called = Rc::new(Cell::new(false));
+        let called = Arc::new(AtomicBool::new(false));
         let fake_action = FakeAction {
             called: called.clone(),
             execute_returns: Some(Ok(())),
@@ -216,16 +211,16 @@ mod tests {
         );
         executor.execute(VideoMode::Content);
         // Didn't call since it was the first state found
-        assert_eq!(called.get(), false);
+        assert_eq!(called.load(Ordering::SeqCst), false);
 
         executor.execute(VideoMode::Slate);
         // Must be called since we had a state transition that matches what we defined in the executor
-        assert_eq!(called.get(), true);
+        assert_eq!(called.load(Ordering::SeqCst), true);
     }
 
     #[test]
     fn executor_slate_action_cannot_be_called_twice_in_short_timeframe() {
-        let called = Rc::new(Cell::new(false));
+        let called = Arc::new(AtomicBool::new(false));
         let fake_action = FakeAction {
             called: called.clone(),
             execute_returns: Some(Ok(())),
@@ -237,17 +232,17 @@ mod tests {
         executor.execute(VideoMode::Content);
         executor.execute(VideoMode::Slate);
         // Must be called since we had a state transition that matches what we defined in the executor
-        assert_eq!(called.get(), true);
+        assert_eq!(called.load(Ordering::SeqCst), true);
         // Reset state of our mock to "not called"
-        called.set(false);
+        called.store(false, Ordering::SeqCst);
         executor.execute(VideoMode::Content);
         executor.execute(VideoMode::Slate);
-        assert_eq!(called.get(), false);
+        assert_eq!(called.load(Ordering::SeqCst), false);
     }
 
     #[test]
     fn executor_slate_action_can_be_called_twice_after_some_time_passes() {
-        let called = Rc::new(Cell::new(false));
+        let called = Arc::new(AtomicBool::new(false));
         let fake_action = FakeAction {
             called: called.clone(),
             execute_returns: Some(Ok(())),
@@ -259,21 +254,46 @@ mod tests {
         executor.execute(VideoMode::Content);
         executor.execute(VideoMode::Slate);
         // Must be called since we had a state transition that matches what we defined in the executor
-        assert_eq!(called.get(), true);
+        assert_eq!(called.load(Ordering::SeqCst), true);
         // Reset state of our mock to "not called"
-        called.set(false);
+        called.store(false, Ordering::SeqCst);
 
         // Move time forward over the delay
-        sleep(Duration::from_secs(10));
+        sleep(Duration::from_secs(11));
 
         executor.execute(VideoMode::Content);
         executor.execute(VideoMode::Slate);
-        assert_eq!(called.get(), true);
+        assert_eq!(called.load(Ordering::SeqCst), true);
+    }
+
+    #[test]
+    fn executor_slate_action_cannot_be_called_twice_if_no_mode_change() {
+        let called = Arc::new(AtomicBool::new(false));
+        let fake_action = FakeAction {
+            called: called.clone(),
+            execute_returns: Some(Ok(())),
+        };
+        let mut executor = ActionExecutor::new(
+            Transition::new(VideoMode::Content, VideoMode::Slate),
+            Action::FakeAction(fake_action),
+        );
+        executor.execute(VideoMode::Content);
+        executor.execute(VideoMode::Slate);
+        // Must be called since we had a state transition that matches what we defined in the executor
+        assert_eq!(called.load(Ordering::SeqCst), true);
+        // Reset state of our mock to "not called"
+        called.store(false, Ordering::SeqCst);
+
+        // Move time forward over the delay
+        sleep(Duration::from_secs(20));
+
+        executor.execute(VideoMode::Slate);
+        assert_eq!(called.load(Ordering::SeqCst), false);
     }
 
     #[test]
     fn runtime_calls_action_executor_with_video_mode() {
-        let called = Rc::new(Cell::new(false));
+        let called = Arc::new(AtomicBool::new(false));
         let fake_action = FakeAction {
             called: called.clone(),
             execute_returns: Some(Ok(())),
@@ -284,7 +304,7 @@ mod tests {
         );
         // Prepare executor to be ready in the next call with `VideoMode::Slate`
         executor.execute(VideoMode::Content);
-        assert_eq!(called.get(), false);
+        assert_eq!(called.load(Ordering::SeqCst), false);
 
         let (s, r) = channel();
         // Pile up some events for the runtime to consume
@@ -295,7 +315,7 @@ mod tests {
         runtime.run_blocking().expect("Should run successfully!");
 
         // Check the action was called
-        assert_eq!(called.get(), true);
+        assert_eq!(called.load(Ordering::SeqCst), true);
     }
 
     #[test]

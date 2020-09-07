@@ -64,6 +64,7 @@ fn match_img_bitmap(img: Image) -> ImgVec<RGBAPLU> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::fs::File;
     use std::io::Read;
     use std::path::Path;
 
@@ -77,8 +78,9 @@ mod test {
 
     #[test]
     fn compare_equal_images() {
-        let slate = read_bytes("resources/slate_120px.jpg");
-        let detector = SlateDetector::new(slate).unwrap();
+        let mut slate =
+            File::open("resources/slate_120px.jpg").expect("Missing file in resources folder");
+        let detector = SlateDetector::new(&mut slate).unwrap();
         let slate_img = read_bytes("resources/slate_120px.jpg");
 
         assert!(detector.is_match(slate_img.as_slice()));
@@ -86,8 +88,9 @@ mod test {
 
     #[test]
     fn compare_diff_images() {
-        let slate = read_bytes("resources/slate_120px.jpg");
-        let detector = SlateDetector::new(slate).unwrap();
+        let mut slate =
+            File::open("resources/slate_120px.jpg").expect("Missing file in resources folder");
+        let detector = SlateDetector::new(&mut slate).unwrap();
         let frame_img = read_bytes("resources/non-slate_120px.jpg");
 
         assert_eq!(detector.is_match(frame_img.as_slice()), false);
