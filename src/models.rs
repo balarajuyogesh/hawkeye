@@ -150,7 +150,8 @@ impl Eq for FakeAction {}
 #[cfg(test)]
 impl FakeAction {
     pub(crate) fn execute(&mut self) -> color_eyre::Result<()> {
-        self.called.store(true, std::sync::atomic::Ordering::Release);
+        self.called
+            .store(true, std::sync::atomic::Ordering::Release);
         if let Some(result) = self.execute_returns.take() {
             match result {
                 Ok(()) => Ok(()),

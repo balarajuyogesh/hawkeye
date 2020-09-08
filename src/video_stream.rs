@@ -4,12 +4,14 @@ use crate::img_detector::SlateDetector;
 use crate::models::VideoMode;
 use color_eyre::Result;
 use derive_more::{Display, Error};
+use gst::gst_element_error;
 use gst::prelude::*;
-use gst::{gst_element_error, FlowSuccess};
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use log::{debug, info};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::Arc;
 
 #[derive(Debug, Display, Error)]
 #[display(fmt = "Received error from {}: {} (debug: {:?})", src, error, debug)]
@@ -97,7 +99,7 @@ pub fn create_pipeline(
                     debug!("Did not find slate..");
                 }
 
-                Ok(FlowSuccess::Ok)
+                Ok(gst::FlowSuccess::Ok)
             })
             .build(),
     );
@@ -105,7 +107,11 @@ pub fn create_pipeline(
     Ok(pipeline)
 }
 
-pub fn main_loop(pipeline: gst::Pipeline, action_sink: Sender<Event>) -> Result<()> {
+pub fn main_loop(
+    pipeline: gst::Pipeline,
+    running: Arc<AtomicBool>,
+    action_sink: Sender<Event>,
+) -> Result<()> {
     pipeline.set_state(gst::State::Paused)?;
 
     let bus = pipeline
@@ -115,36 +121,40 @@ pub fn main_loop(pipeline: gst::Pipeline, action_sink: Sender<Event>) -> Result<
     pipeline.set_state(gst::State::Playing)?;
     info!("Pipeline started...");
 
-    for msg in bus.iter_timed(gst::CLOCK_TIME_NONE) {
-        use gst::MessageView;
+    while running.load(Ordering::SeqCst) {
+        for msg in bus.iter_timed(gst::ClockTime::from_seconds(1)) {
+            use gst::MessageView;
 
-        match msg.view() {
-            MessageView::AsyncDone(..) => {}
-            MessageView::Eos(..) => {
-                // The End-of-stream message is posted when the stream is done, which in our case
-                // happens immediately after matching the slate image because we return
-                // gst::FlowError::Eos then.
-                info!("Got Eos message, done");
-                action_sink.send(Event::Terminate)?;
-                break;
-            }
-            MessageView::Error(err) => {
-                pipeline.set_state(gst::State::Null)?;
-                return Err(ErrorMessage {
-                    src: msg
-                        .get_src()
-                        .map(|s| String::from(s.get_path_string()))
-                        .unwrap_or_else(|| String::from("None")),
-                    error: err.get_error().to_string(),
-                    debug: err.get_debug(),
-                    source: err.get_error(),
+            match msg.view() {
+                MessageView::AsyncDone(..) => {}
+                MessageView::Eos(..) => {
+                    // The End-of-stream message is posted when the stream is done, which in our case
+                    // happens immediately after matching the slate image because we return
+                    // gst::FlowError::Eos then.
+                    running.store(false, Ordering::SeqCst);
+                    info!("Got Eos message, done");
+                    break;
                 }
-                .into());
+                MessageView::Error(err) => {
+                    pipeline.set_state(gst::State::Null)?;
+                    return Err(ErrorMessage {
+                        src: msg
+                            .get_src()
+                            .map(|s| String::from(s.get_path_string()))
+                            .unwrap_or_else(|| String::from("None")),
+                        error: err.get_error().to_string(),
+                        debug: err.get_debug(),
+                        source: err.get_error(),
+                    }
+                    .into());
+                }
+                _ => (),
             }
-            _ => (),
         }
     }
 
+    info!("Stopping pipeline gracefully!");
+    action_sink.send(Event::Terminate)?;
     pipeline.set_state(gst::State::Null)?;
 
     Ok(())

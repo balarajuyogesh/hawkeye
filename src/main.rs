@@ -12,13 +12,18 @@ use crate::video_stream::{create_pipeline, main_loop};
 use color_eyre::Result;
 use gstreamer as gst;
 use log::info;
+use pretty_env_logger::env_logger;
 use std::fs::File;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::thread;
 use structopt::StructOpt;
 
 fn main() -> Result<()> {
-    pretty_env_logger::init();
+    env_logger::init_from_env(
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
+    );
 
     let config: AppConfig = AppConfig::from_args();
     let watcher_config = File::open(config.watcher_path)?;
@@ -49,8 +54,16 @@ fn main() -> Result<()> {
             .expect("Actions runtime ended unexpectedly!");
     });
 
+    let running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+
+    let r = running.clone();
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting termination handler");
+
     create_pipeline(detector, watcher.source.ingest_port, sender.clone())
-        .and_then(|pipeline| main_loop(pipeline, sender))?;
+        .and_then(|pipeline| main_loop(pipeline, running, sender))?;
 
     Ok(())
 }
