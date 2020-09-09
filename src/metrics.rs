@@ -36,6 +36,16 @@ lazy_static! {
         "Number of times the HTTP call returned an HTTP error status code"
     )
     .unwrap();
+    pub static ref HTTP_CALL_RETRIED_COUNT: IntCounter = register_int_counter!(
+        "http_call_retried",
+        "Number of times the HTTP call was retried"
+    )
+    .unwrap();
+    pub static ref HTTP_CALL_RETRIES_EXHAUSTED_COUNT: IntCounter = register_int_counter!(
+        "http_call_retries_exhausted",
+        "Number of times the HTTP action has exhausted all the retries"
+    )
+    .unwrap();
 }
 
 fn get_metric_contents() -> String {

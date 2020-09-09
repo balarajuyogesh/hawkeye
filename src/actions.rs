@@ -1,4 +1,7 @@
-use crate::metrics::{HTTP_CALL_DURATION, HTTP_CALL_ERROR_COUNTER, HTTP_CALL_SUCCESS_COUNTER};
+use crate::metrics::{
+    HTTP_CALL_DURATION, HTTP_CALL_ERROR_COUNTER, HTTP_CALL_RETRIED_COUNT,
+    HTTP_CALL_RETRIES_EXHAUSTED_COUNT, HTTP_CALL_SUCCESS_COUNTER,
+};
 use crate::models::{Action, HttpAuth, HttpCall, VideoMode};
 use crate::video_stream::Event;
 use color_eyre::Result;
@@ -136,8 +139,25 @@ impl Runtime {
 
 impl HttpCall {
     fn execute(&mut self) -> Result<()> {
-        let timer = HTTP_CALL_DURATION.start_timer();
+        let mut tries = 0;
+        loop {
+            match self.try_call() {
+                Ok(_) => break,
+                Err(err) => {
+                    HTTP_CALL_RETRIED_COUNT.inc();
+                    tries += 1;
+                    if tries >= self.retries.unwrap_or(0) {
+                        HTTP_CALL_RETRIES_EXHAUSTED_COUNT.inc();
+                        return Err(err);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 
+    fn try_call(&self) -> Result<()> {
+        let timer = HTTP_CALL_DURATION.start_timer();
         let method = self.method.to_string();
         let mut request = ureq::request(&method, self.url.as_str());
 
