@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::time::Duration;
+use color_eyre::eyre::WrapErr;
 
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
@@ -48,7 +49,7 @@ impl Watcher {
         } else {
             debug!("Loading slate from file");
             let path = self.slate_url.replace("file://", "");
-            Ok(Box::new(File::open(path)?))
+            Ok(Box::new(File::open(path).wrap_err("Could not open slate file")?))
         }
     }
 }
