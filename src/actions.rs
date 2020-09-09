@@ -1,7 +1,8 @@
+use crate::metrics::{HTTP_CALL_DURATION, HTTP_CALL_ERROR_COUNTER, HTTP_CALL_SUCCESS_COUNTER};
 use crate::models::{Action, HttpAuth, HttpCall, VideoMode};
 use crate::video_stream::Event;
 use color_eyre::Result;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
@@ -135,7 +136,7 @@ impl Runtime {
 
 impl HttpCall {
     fn execute(&mut self) -> Result<()> {
-        let start_api_call = Instant::now();
+        let timer = HTTP_CALL_DURATION.start_timer();
 
         let method = self.method.to_string();
         let mut request = ureq::request(&method, self.url.as_str());
@@ -161,21 +162,26 @@ impl HttpCall {
             None => request.call(),
         };
         if response.ok() {
+            HTTP_CALL_SUCCESS_COUNTER.inc();
             debug!(
                 "Successfully called backend API {}",
                 response.into_string()?
             );
         } else {
-            debug!(
+            HTTP_CALL_ERROR_COUNTER.inc();
+            warn!(
                 "Error while calling backend API ({}): {}",
                 response.status(),
                 response.into_string()?
             );
         }
 
+        // Report how long it took to call the backend.
+        // Keep it out of the log macro, so it will execute every time independent of log level
+        let seconds = timer.stop_and_record();
         info!(
             "HTTP call to backend API took: {}ms",
-            start_api_call.elapsed().as_millis()
+            Duration::from_secs_f64(seconds).as_millis()
         );
 
         Ok(())

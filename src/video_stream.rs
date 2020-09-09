@@ -1,6 +1,7 @@
 // Based on https://gitlab.freedesktop.org/gstreamer/gstreamer-rs/-/blob/master/examples/src/bin/thumbnail.rs
 
 use crate::img_detector::SlateDetector;
+use crate::metrics::{FOUND_CONTENT_COUNTER, FOUND_SLATE_COUNTER, SIMILARITY_EXECUTION_COUNTER};
 use crate::models::VideoMode;
 use color_eyre::Result;
 use derive_more::{Display, Error};
@@ -93,11 +94,14 @@ pub fn create_pipeline(
 
                 if detector.is_match(buffer.as_slice()) {
                     debug!("Found slate image in video stream!");
+                    FOUND_SLATE_COUNTER.inc();
                     action_sink.send(Event::Mode(VideoMode::Slate)).unwrap();
                 } else {
+                    FOUND_CONTENT_COUNTER.inc();
                     action_sink.send(Event::Mode(VideoMode::Content)).unwrap();
                     debug!("Did not find slate..");
                 }
+                SIMILARITY_EXECUTION_COUNTER.inc();
 
                 Ok(gst::FlowSuccess::Ok)
             })

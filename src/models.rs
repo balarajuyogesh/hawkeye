@@ -214,7 +214,7 @@ mod tests {
         Watcher {
             id: Some("ee21fc9a-7225-450b-a2a7-2faf914e35b8".to_string()),
             description: Some("UEFA 2020 - Lyon vs. Bayern".to_string()),
-            slate_url: "https://github.com/cbsinteractive/hawkeye/raw/master/resources/slate_120px.jpg".to_string(),
+            slate_url: "file://./resources/slate_120px.jpg".to_string(),
             status: Some(Status::Running),
             source: Source {
                 ingest_port: 5000,

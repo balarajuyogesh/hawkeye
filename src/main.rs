@@ -1,12 +1,14 @@
 mod actions;
 mod config;
 mod img_detector;
+mod metrics;
 mod models;
 mod video_stream;
 
 use crate::actions::ActionExecutor;
 use crate::config::AppConfig;
 use crate::img_detector::SlateDetector;
+use crate::metrics::get_metric_contents;
 use crate::models::Watcher;
 use crate::video_stream::{create_pipeline, main_loop};
 use color_eyre::Result;
@@ -19,6 +21,8 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 use structopt::StructOpt;
+use warp;
+use warp::Filter;
 
 fn main() -> Result<()> {
     env_logger::init_from_env(
@@ -35,7 +39,6 @@ fn main() -> Result<()> {
     info!("Initializing GStreamer..");
     gst::init().expect("Could not initialize GStreamer!");
 
-    let detector = SlateDetector::new(&mut watcher.slate()?)?;
     let (sender, receiver) = channel();
 
     info!("Loading executors..");
@@ -54,6 +57,19 @@ fn main() -> Result<()> {
             .expect("Actions runtime ended unexpectedly!");
     });
 
+    // starts metrics web app
+    thread::spawn(|| {
+        let mut runtime = tokio::runtime::Builder::new()
+            .threaded_scheduler()
+            .thread_name("metrics_app")
+            .max_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        let routes = warp::path("metrics").map(get_metric_contents);
+        runtime.block_on(warp::serve(routes).run(([0, 0, 0, 0], 3030)));
+    });
+
     let running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
 
     let r = running.clone();
@@ -62,6 +78,7 @@ fn main() -> Result<()> {
     })
     .expect("Error setting termination handler");
 
+    let detector = SlateDetector::new(&mut watcher.slate()?)?;
     create_pipeline(detector, watcher.source.ingest_port, sender.clone())
         .and_then(|pipeline| main_loop(pipeline, running, sender))?;
 
