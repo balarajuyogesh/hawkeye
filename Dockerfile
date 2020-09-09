@@ -10,10 +10,13 @@ COPY src /src
 RUN cargo build --release
 
 FROM ubuntu:18.04 AS app
-RUN apt update
-RUN apt install -y \
-              gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-              gstreamer1.0-plugins-bad gstreamer1.0-libav
+RUN apt update \
+    && apt install -y \
+           gstreamer1.0-plugins-base \
+           gstreamer1.0-plugins-good \
+           gstreamer1.0-plugins-bad \
+           gstreamer1.0-libav \
+    && apt-get clean
 ENV RUST_LOG=info
 COPY --from=builder /target/release/hawkeye .
 ENTRYPOINT ["/hawkeye"]
