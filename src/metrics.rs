@@ -2,6 +2,9 @@ use lazy_static::lazy_static;
 use log::debug;
 use prometheus::{self, Encoder, TextEncoder};
 use prometheus::{register_histogram, register_int_counter, Histogram, IntCounter};
+use tokio::runtime::Builder;
+use warp;
+use warp::Filter;
 
 lazy_static! {
     pub static ref FOUND_SLATE_COUNTER: IntCounter = register_int_counter!(
@@ -36,7 +39,7 @@ lazy_static! {
     .unwrap();
 }
 
-pub fn get_metric_contents() -> String {
+fn get_metric_contents() -> String {
     debug!("Metrics endpoint called!");
     let mut buffer = Vec::new();
     let encoder = TextEncoder::new();
@@ -45,4 +48,16 @@ pub fn get_metric_contents() -> String {
     encoder.encode(&metric_families, &mut buffer).unwrap();
 
     String::from_utf8(buffer).unwrap()
+}
+
+pub fn run_metrics_service() {
+    let mut runtime = Builder::new()
+        .threaded_scheduler()
+        .thread_name("metrics_app")
+        .max_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let routes = warp::path("metrics").map(get_metric_contents);
+    runtime.block_on(warp::serve(routes).run(([0, 0, 0, 0], 3030)));
 }

@@ -8,7 +8,7 @@ mod video_stream;
 use crate::actions::ActionExecutor;
 use crate::config::AppConfig;
 use crate::img_detector::SlateDetector;
-use crate::metrics::get_metric_contents;
+use crate::metrics::run_metrics_service;
 use crate::models::Watcher;
 use crate::video_stream::{create_pipeline, main_loop};
 use color_eyre::Result;
@@ -21,8 +21,6 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 use structopt::StructOpt;
-use warp;
-use warp::Filter;
 
 fn main() -> Result<()> {
     env_logger::init_from_env(
@@ -58,17 +56,7 @@ fn main() -> Result<()> {
     });
 
     // starts metrics web app
-    thread::spawn(|| {
-        let mut runtime = tokio::runtime::Builder::new()
-            .threaded_scheduler()
-            .thread_name("metrics_app")
-            .max_threads(2)
-            .enable_all()
-            .build()
-            .unwrap();
-        let routes = warp::path("metrics").map(get_metric_contents);
-        runtime.block_on(warp::serve(routes).run(([0, 0, 0, 0], 3030)));
-    });
+    thread::spawn(|| run_metrics_service());
 
     let running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
 
