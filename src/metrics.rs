@@ -3,7 +3,6 @@ use log::debug;
 use prometheus::{self, Encoder, TextEncoder};
 use prometheus::{register_histogram, register_int_counter, Histogram, IntCounter};
 use tokio::runtime::Builder;
-use warp;
 use warp::Filter;
 
 lazy_static! {

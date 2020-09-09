@@ -56,9 +56,9 @@ fn main() -> Result<()> {
     });
 
     // starts metrics web app
-    thread::spawn(|| run_metrics_service());
+    thread::spawn(run_metrics_service);
 
-    let running: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+    let running = Arc::new(AtomicBool::new(true));
 
     let r = running.clone();
     ctrlc::set_handler(move || {
