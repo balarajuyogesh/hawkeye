@@ -2,28 +2,27 @@ use crate::metrics::{
     HTTP_CALL_DURATION, HTTP_CALL_ERROR_COUNTER, HTTP_CALL_RETRIED_COUNT,
     HTTP_CALL_RETRIES_EXHAUSTED_COUNT, HTTP_CALL_SUCCESS_COUNTER,
 };
-use crate::models::{Action, HttpAuth, HttpCall, VideoMode};
 use crate::video_stream::Event;
 use color_eyre::Result;
+use hawkeye_core::models::{self, Action, HttpAuth, HttpCall, VideoMode};
 use log::{debug, error, info, warn};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use crate::models;
 #[cfg(test)]
 use sn_fake_clock::FakeClock as Instant;
 #[cfg(not(test))]
 use std::time::Instant;
 
-/// Abstract behaviour of an Hawkeye Action.
-///
-/// New actions can implement this trait and will be ready to be used with video watchers.
-impl Action {
+/// Abstracts execution call for every action type.
+trait ActionExecution {
+    fn execute(&mut self) -> Result<()>;
+}
+
+impl ActionExecution for Action {
     fn execute(&mut self) -> Result<()> {
         match self {
             Action::HttpCall(a) => a.execute(),
-
-            #[cfg(test)]
             Action::FakeAction(a) => a.execute(),
         }
     }
@@ -98,14 +97,19 @@ impl ActionExecutor {
     }
 }
 
-impl From<models::Transition> for Vec<ActionExecutor> {
+// TODO: Delete this type
+pub(crate) struct Executors(pub(crate) Vec<ActionExecutor>);
+
+impl From<models::Transition> for Executors {
     fn from(transition: models::Transition) -> Self {
         let target_transition = Transition(transition.from, transition.to);
-        transition
-            .actions
-            .into_iter()
-            .map(|action| ActionExecutor::new(target_transition.clone(), action))
-            .collect()
+        Self(
+            transition
+                .actions
+                .into_iter()
+                .map(|action| ActionExecutor::new(target_transition.clone(), action))
+                .collect(),
+        )
     }
 }
 
@@ -137,11 +141,11 @@ impl Runtime {
     }
 }
 
-impl HttpCall {
+impl ActionExecution for HttpCall {
     fn execute(&mut self) -> Result<()> {
         let mut tries = 0;
         loop {
-            match self.try_call() {
+            match try_call(&self) {
                 Ok(_) => break,
                 Err(err) => {
                     HTTP_CALL_RETRIED_COUNT.inc();
@@ -155,64 +159,63 @@ impl HttpCall {
         }
         Ok(())
     }
+}
 
-    fn try_call(&self) -> Result<()> {
-        let timer = HTTP_CALL_DURATION.start_timer();
-        let method = self.method.to_string();
-        let mut request = ureq::request(&method, self.url.as_str());
+fn try_call(call: &HttpCall) -> Result<()> {
+    let timer = HTTP_CALL_DURATION.start_timer();
+    let method = call.method.to_string();
+    let mut request = ureq::request(&method, call.url.as_str());
 
-        request.timeout_connect(500);
+    request.timeout_connect(500);
 
-        if let Some(HttpAuth::Basic { username, password }) = &self.authorization {
-            request.auth(username, password);
-        }
-
-        if let Some(timeout) = &self.timeout {
-            request.timeout(Duration::from_secs(*timeout as u64));
-        }
-
-        if let Some(headers) = &self.headers {
-            for (k, v) in headers.iter() {
-                request.set(k, v);
-            }
-        }
-
-        let response = match self.body.as_ref() {
-            Some(data) => request.send_string(data),
-            None => request.call(),
-        };
-        if response.ok() {
-            HTTP_CALL_SUCCESS_COUNTER.inc();
-            debug!(
-                "Successfully called backend API {}",
-                response.into_string()?
-            );
-        } else {
-            HTTP_CALL_ERROR_COUNTER.inc();
-            warn!(
-                "Error while calling backend API ({}): {}",
-                response.status(),
-                response.into_string()?
-            );
-        }
-
-        // Report how long it took to call the backend.
-        // Keep it out of the log macro, so it will execute every time independent of log level
-        let seconds = timer.stop_and_record();
-        info!(
-            "HTTP call to backend API took: {}ms",
-            Duration::from_secs_f64(seconds).as_millis()
-        );
-
-        Ok(())
+    if let Some(HttpAuth::Basic { username, password }) = &call.authorization {
+        request.auth(username, password);
     }
+
+    if let Some(timeout) = &call.timeout {
+        request.timeout(Duration::from_secs(*timeout as u64));
+    }
+
+    if let Some(headers) = &call.headers {
+        for (k, v) in headers.iter() {
+            request.set(k, v);
+        }
+    }
+
+    let response = match call.body.as_ref() {
+        Some(data) => request.send_string(data),
+        None => request.call(),
+    };
+    if response.ok() {
+        HTTP_CALL_SUCCESS_COUNTER.inc();
+        debug!(
+            "Successfully called backend API {}",
+            response.into_string()?
+        );
+    } else {
+        HTTP_CALL_ERROR_COUNTER.inc();
+        warn!(
+            "Error while calling backend API ({}): {}",
+            response.status(),
+            response.into_string()?
+        );
+    }
+
+    // Report how long it took to call the backend.
+    // Keep it out of the log macro, so it will execute every time independent of log level
+    let seconds = timer.stop_and_record();
+    info!(
+        "HTTP call to backend API took: {}ms",
+        Duration::from_secs_f64(seconds).as_millis()
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models;
-    use crate::models::{FakeAction, HttpAuth, HttpMethod};
+    use hawkeye_core::models::{FakeAction, HttpMethod};
     use mockito::{mock, server_url, Matcher};
     use sn_fake_clock::FakeClock;
     use std::collections::HashMap;
@@ -405,6 +408,6 @@ mod tests {
             })],
         };
 
-        let _executors: Vec<ActionExecutor> = transition.into();
+        let _executors: Executors = transition.into();
     }
 }

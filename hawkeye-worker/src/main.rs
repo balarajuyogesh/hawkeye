@@ -2,17 +2,16 @@ mod actions;
 mod config;
 mod img_detector;
 mod metrics;
-mod models;
 mod video_stream;
 
-use crate::actions::ActionExecutor;
+use crate::actions::{ActionExecutor, Executors};
 use crate::config::AppConfig;
 use crate::img_detector::SlateDetector;
 use crate::metrics::run_metrics_service;
-use crate::models::Watcher;
 use crate::video_stream::{create_pipeline, main_loop};
 use color_eyre::Result;
 use gstreamer as gst;
+use hawkeye_core::models::Watcher;
 use log::info;
 use pretty_env_logger::env_logger;
 use std::fs::File;
@@ -42,8 +41,8 @@ fn main() -> Result<()> {
     info!("Loading executors..");
     let mut executors: Vec<ActionExecutor> = Vec::new();
     for transition in watcher.transitions.iter() {
-        let mut execs = transition.clone().into();
-        executors.append(&mut execs);
+        let mut execs: Executors = transition.clone().into();
+        executors.append(&mut execs.0);
     }
 
     thread::spawn(move || {

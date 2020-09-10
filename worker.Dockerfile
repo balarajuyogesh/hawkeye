@@ -6,8 +6,10 @@ RUN apt install -y \
               gstreamer1.0-plugins-bad gstreamer1.0-libav libgstrtspserver-1.0-dev libges-1.0-dev
 COPY Cargo.toml /Cargo.toml
 COPY Cargo.lock /Cargo.lock
-COPY src /src
-RUN cargo build --release
+COPY hawkeye-api /hawkeye-api
+COPY hawkeye-core /hawkeye-core
+COPY hawkeye-worker /hawkeye-worker
+RUN cargo build --release --package hawkeye-worker
 
 FROM ubuntu:18.04 AS app
 RUN apt update \
@@ -18,5 +20,5 @@ RUN apt update \
            gstreamer1.0-libav \
     && apt-get clean
 ENV RUST_LOG=info
-COPY --from=builder /target/release/hawkeye .
-ENTRYPOINT ["/hawkeye"]
+COPY --from=builder /target/release/hawkeye-worker .
+ENTRYPOINT ["/hawkeye-worker"]
