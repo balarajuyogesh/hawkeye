@@ -275,6 +275,8 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
     let mut w: Watcher =
         serde_json::from_str(config_map.data.unwrap().get("watcher.json").unwrap()).unwrap();
     w.status = Some(deployment.get_watcher_status());
+    // TODO: Comes from the service
+    w.source.ingest_ip = None;
 
     Ok(reply::with_status(reply::json(&w), StatusCode::OK))
 }
