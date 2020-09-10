@@ -59,13 +59,16 @@ impl Watcher {
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
+    Updating,
     Running,
     Ready,
     Error,
 }
 
+#[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct Source {
+    pub ingest_ip: Option<String>,
     pub ingest_port: u32,
     pub container: Container,
     pub codec: Codec,

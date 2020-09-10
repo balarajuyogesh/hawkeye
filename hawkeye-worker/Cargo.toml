@@ -6,7 +6,6 @@ edition = "2018"
 license = "MIT"
 repository = "https://github.com/cbsinteractive/hawkeye"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 hawkeye-core = { path = "../hawkeye-core" }
