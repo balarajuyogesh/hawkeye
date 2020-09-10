@@ -328,7 +328,7 @@ pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Repl
                 "message": "Watcher is already running"
             })), StatusCode::CONFLICT))
         } else {
-            // TODO: Start watcher / replicas to 1
+            // Start watcher / replicas to 1
             let patch_params = PatchParams::default();
             let fs = json!({
                 "spec": { "replicas": 1 }
@@ -340,6 +340,50 @@ pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Repl
 
             Ok(reply::with_status(reply::json(&json!({
                 "message": "Watcher is starting"
+            })), StatusCode::OK))
+        }
+    } else {
+        Ok(reply::with_status(reply::json(&json!({
+            "message": "Watcher is in failed state"
+        })), StatusCode::BAD_REQUEST))
+    }
+}
+
+pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
+    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
+
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    // TODO: probably better to just get the scale
+    let deployment = match deployments_client
+        .get(&format!("hawkeye-deploy-{}", id))
+        .await
+    {
+        Ok(d) => d,
+        Err(_) => {
+            return Ok(reply::with_status(
+                reply::json(&json!({})),
+                StatusCode::NOT_FOUND,
+            ))
+        }
+    };
+    if let Some(status) = deployment.status {
+        if status.available_replicas.unwrap_or(0) == 0 {
+            Ok(reply::with_status(reply::json(&json!({
+                "message": "Watcher is already stopped"
+            })), StatusCode::OK))
+        } else {
+            // Stop watcher / replicas to 0
+            let patch_params = PatchParams::default();
+            let fs = json!({
+                "spec": { "replicas": 0 }
+            });
+            let o = deployments_client
+                .patch_scale(&deployment.metadata.name.unwrap(), &patch_params, serde_json::to_vec(&fs).unwrap())
+                .await.unwrap();
+            log::debug!("Scale status: {:?}", o);
+
+            Ok(reply::with_status(reply::json(&json!({
+                "message": "Watcher is stopping"
             })), StatusCode::OK))
         }
     } else {

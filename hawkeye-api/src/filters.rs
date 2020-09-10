@@ -11,6 +11,7 @@ pub fn v1(
         .or(watcher_create(client.clone()))
         .or(watcher_get(client.clone()))
         .or(watcher_start(client.clone()))
+        .or(watcher_stop(client.clone()))
     // .or(watcher_update())
     // .or(watcher_delete())
 }
@@ -54,6 +55,16 @@ pub fn watcher_start(
         .and(warp::post())
         .and(with_client(client))
         .and_then(handlers::start_watcher)
+}
+
+/// POST /v1/watchers/{id}/stop
+pub fn watcher_stop(
+    client: Client,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path!("v1" / "watchers" / String / "stop")
+        .and(warp::post())
+        .and(with_client(client))
+        .and_then(handlers::stop_watcher)
 }
 
 fn with_client(
