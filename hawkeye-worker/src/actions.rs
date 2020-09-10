@@ -103,11 +103,13 @@ pub(crate) struct Executors(pub(crate) Vec<ActionExecutor>);
 impl From<models::Transition> for Executors {
     fn from(transition: models::Transition) -> Self {
         let target_transition = Transition(transition.from, transition.to);
-        Self(transition
-            .actions
-            .into_iter()
-            .map(|action| ActionExecutor::new(target_transition.clone(), action))
-            .collect())
+        Self(
+            transition
+                .actions
+                .into_iter()
+                .map(|action| ActionExecutor::new(target_transition.clone(), action))
+                .collect(),
+        )
     }
 }
 

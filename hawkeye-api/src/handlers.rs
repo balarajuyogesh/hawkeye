@@ -1,8 +1,8 @@
 use hawkeye_core::models::{Status, Watcher};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Service};
-use kube::api::{ListParams, PostParams, PatchParams, DeleteParams};
-use kube::{Api, Client };
+use kube::api::{DeleteParams, ListParams, PatchParams, PostParams};
+use kube::{Api, Client};
 use serde_json::json;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -26,22 +26,7 @@ pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallibl
     let mut deployments_index = HashMap::new();
     for deploy in deployments.items {
         if let Some(watcher_id) = deploy.metadata.labels.as_ref().unwrap().get("watcher_id") {
-            let status = if deploy
-                .status
-                .as_ref()
-                .unwrap()
-                .available_replicas
-                .unwrap_or(0)
-                > 0
-            {
-                // TODO: if running we need to get the endpoint from the service
-                Status::Running
-            } else {
-                // TODO: We should check also if the Service is created
-                // TODO: We need to get the endpoint from the service
-                Status::Ready
-            };
-            deployments_index.insert(watcher_id.clone(), status);
+            deployments_index.insert(watcher_id.clone(), deploy.get_watcher_status());
         }
     }
 
@@ -56,7 +41,7 @@ pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallibl
         let calculated_status = if let Some(status) =
             deployments_index.get(w.id.as_ref().unwrap_or(&"undefined".to_string()))
         {
-            status.clone()
+            *status
         } else {
             Status::Error
         };
@@ -118,6 +103,7 @@ pub async fn create_watcher(
             "labels": {
                 "app": "hawkeye",
                 "watcher_id": new_id,
+                "target_status": Status::Ready,
             }
         },
         "spec": {
@@ -288,22 +274,10 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
 
     let mut w: Watcher =
         serde_json::from_str(config_map.data.unwrap().get("watcher.json").unwrap()).unwrap();
-    let calculated_status = if let Some(status) = deployment.status {
-        w.source.ingest_ip = None;
-        if status.available_replicas.unwrap_or(0) > 0 {
-            // TODO: if running we need to get the endpoint from the service
-            Status::Running
-        } else {
-            Status::Ready
-        }
-    } else {
-        Status::Error
-    };
-    w.status = Some(calculated_status);
+    w.status = Some(deployment.get_watcher_status());
 
     Ok(reply::with_status(reply::json(&w), StatusCode::OK))
 }
-
 
 pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
     let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
@@ -322,30 +296,64 @@ pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Repl
             ))
         }
     };
-    if let Some(status) = deployment.status {
-        if status.available_replicas.unwrap_or(0) > 0 {
-            Ok(reply::with_status(reply::json(&json!({
+    match deployment.get_watcher_status() {
+        Status::Running => Ok(reply::with_status(
+            reply::json(&json!({
                 "message": "Watcher is already running"
-            })), StatusCode::CONFLICT))
-        } else {
+            })),
+            StatusCode::CONFLICT,
+        )),
+        Status::Updating => Ok(reply::with_status(
+            reply::json(&json!({
+                "message": "Watcher is updating"
+            })),
+            StatusCode::CONFLICT,
+        )),
+        Status::Ready => {
             // Start watcher / replicas to 1
             let patch_params = PatchParams::default();
+
             let fs = json!({
                 "spec": { "replicas": 1 }
             });
             let o = deployments_client
-                .patch_scale(&deployment.metadata.name.unwrap(), &patch_params, serde_json::to_vec(&fs).unwrap())
-                .await.unwrap();
+                .patch_scale(
+                    deployment.metadata.name.as_ref().unwrap(),
+                    &patch_params,
+                    serde_json::to_vec(&fs).unwrap(),
+                )
+                .await
+                .unwrap();
             log::debug!("Scale status: {:?}", o);
 
-            Ok(reply::with_status(reply::json(&json!({
-                "message": "Watcher is starting"
-            })), StatusCode::OK))
+            let status_label = json!({
+                "metadata": {
+                    "labels": {
+                        "target_status": Status::Running
+                    }
+                }
+            });
+            let _ = deployments_client
+                .patch(
+                    deployment.metadata.name.as_ref().unwrap(),
+                    &patch_params,
+                    serde_json::to_vec(&status_label).unwrap(),
+                )
+                .await;
+
+            Ok(reply::with_status(
+                reply::json(&json!({
+                    "message": "Watcher is starting"
+                })),
+                StatusCode::OK,
+            ))
         }
-    } else {
-        Ok(reply::with_status(reply::json(&json!({
-            "message": "Watcher is in failed state"
-        })), StatusCode::BAD_REQUEST))
+        Status::Error => Ok(reply::with_status(
+            reply::json(&json!({
+                "message": "Watcher in error state cannot be set to running"
+            })),
+            StatusCode::NOT_ACCEPTABLE,
+        )),
     }
 }
 
@@ -366,30 +374,65 @@ pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply
             ))
         }
     };
-    if let Some(status) = deployment.status {
-        if status.available_replicas.unwrap_or(0) == 0 {
-            Ok(reply::with_status(reply::json(&json!({
+    // TODO: Set target_status to Ready
+    match deployment.get_watcher_status() {
+        Status::Ready => Ok(reply::with_status(
+            reply::json(&json!({
                 "message": "Watcher is already stopped"
-            })), StatusCode::OK))
-        } else {
+            })),
+            StatusCode::CONFLICT,
+        )),
+        Status::Updating => Ok(reply::with_status(
+            reply::json(&json!({
+                "message": "Watcher is updating"
+            })),
+            StatusCode::CONFLICT,
+        )),
+        Status::Running => {
             // Stop watcher / replicas to 0
             let patch_params = PatchParams::default();
+
             let fs = json!({
                 "spec": { "replicas": 0 }
             });
             let o = deployments_client
-                .patch_scale(&deployment.metadata.name.unwrap(), &patch_params, serde_json::to_vec(&fs).unwrap())
-                .await.unwrap();
+                .patch_scale(
+                    deployment.metadata.name.as_ref().unwrap(),
+                    &patch_params,
+                    serde_json::to_vec(&fs).unwrap(),
+                )
+                .await
+                .unwrap();
             log::debug!("Scale status: {:?}", o);
 
-            Ok(reply::with_status(reply::json(&json!({
-                "message": "Watcher is stopping"
-            })), StatusCode::OK))
+            let status_label = json!({
+                "metadata": {
+                    "labels": {
+                        "target_status": Status::Ready
+                    }
+                }
+            });
+            let _ = deployments_client
+                .patch(
+                    deployment.metadata.name.as_ref().unwrap(),
+                    &patch_params,
+                    serde_json::to_vec(&status_label).unwrap(),
+                )
+                .await;
+
+            Ok(reply::with_status(
+                reply::json(&json!({
+                    "message": "Watcher is stopping"
+                })),
+                StatusCode::OK,
+            ))
         }
-    } else {
-        Ok(reply::with_status(reply::json(&json!({
-            "message": "Watcher is in failed state"
-        })), StatusCode::BAD_REQUEST))
+        Status::Error => Ok(reply::with_status(
+            reply::json(&json!({
+                "message": "Watcher in error state cannot be set to stopped"
+            })),
+            StatusCode::NOT_ACCEPTABLE,
+        )),
     }
 }
 
@@ -403,20 +446,64 @@ pub async fn delete_watcher(id: String, client: Client) -> Result<impl warp::Rep
         .await;
 
     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
-    let _ = config_maps.delete(&format!("hawkeye-config-{}", id), &dp).await;
+    let _ = config_maps
+        .delete(&format!("hawkeye-config-{}", id), &dp)
+        .await;
 
     let services: Api<Service> = Api::namespaced(client.clone(), &namespace);
-    match services.delete(&format!("hawkeye-vid-svc-{}", id), &dp).await {
-        Ok(_) => {
-                Ok(reply::with_status(reply::json(&json!({
-                    "message": "Watcher has been deleted"
-                })), StatusCode::BAD_REQUEST))
-        },
-        Err(_) => {
-            Ok(reply::with_status(reply::json(&json!({
+    match services
+        .delete(&format!("hawkeye-vid-svc-{}", id), &dp)
+        .await
+    {
+        Ok(_) => Ok(reply::with_status(
+            reply::json(&json!({
+                "message": "Watcher has been deleted"
+            })),
+            StatusCode::OK,
+        )),
+        Err(_) => Ok(reply::with_status(
+            reply::json(&json!({
                 "message": "Watcher does not exist"
-            })), StatusCode::NOT_FOUND))
+            })),
+            StatusCode::NOT_FOUND,
+        )),
+    }
+}
 
-        },
+trait WatcherStatus {
+    fn get_watcher_status(&self) -> Status;
+}
+
+impl WatcherStatus for Deployment {
+    fn get_watcher_status(&self) -> Status {
+        let target_status = self
+            .metadata
+            .labels
+            .as_ref()
+            .map(|labels| {
+                labels
+                    .get("target_status")
+                    .map(|status| serde_json::from_str(&format!("\"{}\"", status)))
+                    .unwrap_or(Ok(Status::Error))
+            })
+            .unwrap_or(Ok(Status::Error))
+            .unwrap_or(Status::Error);
+        log::debug!("TARGET_STATUS={:?}", target_status);
+        if let Some(status) = self.status.as_ref() {
+            let deploy_status = if status.available_replicas.unwrap_or(0) > 0 {
+                Status::Running
+            } else {
+                Status::Ready
+            };
+            match (deploy_status, target_status) {
+                (Status::Running, Status::Running) => Status::Running,
+                (Status::Ready, Status::Ready) => Status::Ready,
+                (Status::Ready, Status::Running) => Status::Updating,
+                (Status::Running, Status::Ready) => Status::Updating,
+                (_, _) => Status::Error,
+            }
+        } else {
+            Status::Error
+        }
     }
 }
