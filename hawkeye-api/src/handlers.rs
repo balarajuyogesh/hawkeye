@@ -1,8 +1,8 @@
 use hawkeye_core::models::{Status, Watcher};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Service};
-use kube::api::{ListParams, PostParams, PatchParams};
-use kube::{Api, Client};
+use kube::api::{ListParams, PostParams, PatchParams, DeleteParams};
+use kube::{Api, Client };
 use serde_json::json;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -390,5 +390,33 @@ pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply
         Ok(reply::with_status(reply::json(&json!({
             "message": "Watcher is in failed state"
         })), StatusCode::BAD_REQUEST))
+    }
+}
+
+pub async fn delete_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
+    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
+    let dp = DeleteParams::default();
+
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let _ = deployments_client
+        .delete(&format!("hawkeye-deploy-{}", id), &dp)
+        .await;
+
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
+    let _ = config_maps.delete(&format!("hawkeye-config-{}", id), &dp).await;
+
+    let services: Api<Service> = Api::namespaced(client.clone(), &namespace);
+    match services.delete(&format!("hawkeye-vid-svc-{}", id), &dp).await {
+        Ok(_) => {
+                Ok(reply::with_status(reply::json(&json!({
+                    "message": "Watcher has been deleted"
+                })), StatusCode::BAD_REQUEST))
+        },
+        Err(_) => {
+            Ok(reply::with_status(reply::json(&json!({
+                "message": "Watcher does not exist"
+            })), StatusCode::NOT_FOUND))
+
+        },
     }
 }
