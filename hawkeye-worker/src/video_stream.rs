@@ -2,13 +2,13 @@
 
 use crate::img_detector::SlateDetector;
 use crate::metrics::{FOUND_CONTENT_COUNTER, FOUND_SLATE_COUNTER, SIMILARITY_EXECUTION_COUNTER};
-use crate::models::VideoMode;
 use color_eyre::Result;
 use derive_more::{Display, Error};
 use gst::gst_element_error;
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
+use hawkeye_core::models::VideoMode;
 use log::{debug, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;

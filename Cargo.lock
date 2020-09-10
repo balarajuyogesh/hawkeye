@@ -989,7 +989,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00d63df3d41950fb462ed38308eea019113ad1508da725bbedcd0fa5a85ef5f7"
 
 [[package]]
-name = "hawkeye"
+name = "hawkeye-api"
+version = "0.1.0"
+
+[[package]]
+name = "hawkeye-core"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "log",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "ureq",
+]
+
+[[package]]
+name = "hawkeye-worker"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
@@ -1000,18 +1017,16 @@ dependencies = [
  "gstreamer",
  "gstreamer-app",
  "gstreamer-video",
+ "hawkeye-core",
  "image",
  "imgref",
  "lazy_static",
  "load_image",
  "log",
  "mockito",
- "pretty_assertions",
  "pretty_env_logger",
  "prometheus",
- "serde",
  "serde_json",
- "serde_with",
  "sn_fake_clock",
  "structopt",
  "tokio",

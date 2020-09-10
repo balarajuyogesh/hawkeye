@@ -124,19 +124,19 @@ pub enum VideoMode {
 pub enum Action {
     HttpCall(HttpCall),
 
-    #[cfg(test)]
+    // #[cfg(test)]
     #[serde(skip_serializing, skip_deserializing)]
     FakeAction(FakeAction),
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct FakeAction {
-    pub(crate) called: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    pub(crate) execute_returns: Option<Result<(), ()>>,
+    pub called: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub execute_returns: Option<Result<(), ()>>,
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 impl PartialEq for FakeAction {
     fn eq(&self, _other: &Self) -> bool {
         true
@@ -147,12 +147,12 @@ impl PartialEq for FakeAction {
     }
 }
 
-#[cfg(test)]
+// #[cfg(test)]
 impl Eq for FakeAction {}
 
-#[cfg(test)]
+// #[cfg(test)]
 impl FakeAction {
-    pub(crate) fn execute(&mut self) -> color_eyre::Result<()> {
+    pub fn execute(&mut self) -> color_eyre::Result<()> {
         self.called
             .store(true, std::sync::atomic::Ordering::Release);
         if let Some(result) = self.execute_returns.take() {
@@ -169,14 +169,14 @@ impl FakeAction {
 #[skip_serializing_none]
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct HttpCall {
-    pub(crate) method: HttpMethod,
-    pub(crate) url: String,
-    pub(crate) description: Option<String>,
-    pub(crate) authorization: Option<HttpAuth>,
-    pub(crate) headers: Option<HashMap<String, String>>,
-    pub(crate) body: Option<String>,
-    pub(crate) retries: Option<u8>,
-    pub(crate) timeout: Option<u32>,
+    pub method: HttpMethod,
+    pub url: String,
+    pub description: Option<String>,
+    pub authorization: Option<HttpAuth>,
+    pub headers: Option<HashMap<String, String>>,
+    pub body: Option<String>,
+    pub retries: Option<u8>,
+    pub timeout: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn deserialize_as_expected() {
-        let mut fixture = File::open("fixtures/watcher.json").expect("Fixture was not found!");
+        let mut fixture = File::open("../fixtures/watcher.json").expect("Fixture was not found!");
         let mut expected_value = String::new();
         fixture.read_to_string(&mut expected_value).unwrap();
         let expected: Watcher = serde_json::from_str(expected_value.as_str()).unwrap();
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn serialize_as_expected() {
-        let mut fixture = File::open("fixtures/watcher.json").expect("Fixture was not found!");
+        let mut fixture = File::open("../fixtures/watcher.json").expect("Fixture was not found!");
         let mut expected_value = String::new();
         fixture.read_to_string(&mut expected_value).unwrap();
         let fixture: serde_json::Value = serde_json::from_str(expected_value.as_str()).unwrap();
