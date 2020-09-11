@@ -132,7 +132,7 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
         let pods_client: Api<Pod> = Api::namespaced(client.clone(), &NAMESPACE);
         let lp = ListParams::default().labels(&format!("app=hawkeye,watcher_id={}", id));
         let pods = pods_client.list(&lp).await.unwrap();
-        let status_msg = pods
+        w.status_description = pods
             .items
             .first()
             .map(|p| p.status.as_ref())
@@ -147,12 +147,34 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
             .flatten()
             .map(|csw| csw.message.clone())
             .flatten();
-        log::debug!("Additional information for the Pending status: {:?}", status_msg);
-        w.status_description = status_msg;
+        log::debug!(
+            "Additional information for the Pending status: {:?}",
+            w.status_description.as_ref()
+        );
     }
 
-    // TODO: Comes from the service
-    w.source.ingest_ip = None;
+    // Comes from the service
+    w.source.ingest_ip = if w.status != Some(Status::Error) {
+        log::debug!("Getting ingest_ip from Service's LoadBalancer");
+        let services: Api<Service> = Api::namespaced(client.clone(), &NAMESPACE);
+        let service = services
+            .get_status(&templates::service_name(&id))
+            .await
+            .unwrap();
+        service
+            .status
+            .as_ref()
+            .map(|s| s.load_balancer.as_ref())
+            .flatten()
+            .map(|lbs| lbs.ingress.as_ref())
+            .flatten()
+            .map(|lbs| lbs.first())
+            .flatten()
+            .map(|lb| lb.clone().hostname.or(lb.clone().ip))
+            .flatten()
+    } else {
+        None
+    };
 
     Ok(reply::with_status(reply::json(&w), StatusCode::OK))
 }

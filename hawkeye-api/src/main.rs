@@ -21,8 +21,8 @@ async fn main() -> anyhow::Result<()> {
     let v1 = filters::v1(client);
     let routes = v1.with(warp::log("watchers"));
 
-    log::info!("Running API at 127.0.0.1:8080 ..");
-    warp::serve(routes).run(([127, 0, 0, 1], 8080)).await;
+    log::info!("Running API at 0.0.0.0:8080 ..");
+    warp::serve(routes).run(([0, 0, 0, 0], 8080)).await;
 
     Ok(())
 }
