@@ -128,6 +128,7 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
 
     if let Some(Status::Pending) = w.status.as_ref() {
         // Load more information why it's in pending status
+        // We get the reason the container is waiting, if available
         let pods_client: Api<Pod> = Api::namespaced(client.clone(), &NAMESPACE);
         let lp = ListParams::default().labels(&format!("app=hawkeye,watcher_id={}", id));
         let pods = pods_client.list(&lp).await.unwrap();
@@ -146,6 +147,7 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
             .flatten()
             .map(|csw| csw.message.clone())
             .flatten();
+        log::debug!("Additional information for the Pending status: {:?}", status_msg);
         w.status_description = status_msg;
     }
 

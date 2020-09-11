@@ -32,12 +32,6 @@ impl ActionExecution for Action {
 #[derive(Clone, Eq, PartialEq)]
 pub struct Transition(VideoMode, VideoMode);
 
-impl Transition {
-    pub fn new(start: VideoMode, end: VideoMode) -> Self {
-        Self(start, end)
-    }
-}
-
 /// Manages the execution of an `Action` based on a flow of `VideoMode`s.
 ///
 /// The `ActionExecutor` abstracts the logic of execution that is inherent to all `Action` types.
