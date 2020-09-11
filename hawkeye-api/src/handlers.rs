@@ -9,19 +9,23 @@ use std::convert::Infallible;
 use uuid::Uuid;
 use warp::http::StatusCode;
 use warp::reply;
+use lazy_static::lazy_static;
 
-const NAMESPACE_ENV: &'static str = "HAWKEYE_NAMESPACE";
-const DOCKER_IMAGE_ENV: &'static str = "HAWKEYE_DOCKER_IMAGE";
+const NAMESPACE_ENV: &str = "HAWKEYE_NAMESPACE";
+const DOCKER_IMAGE_ENV: &str = "HAWKEYE_DOCKER_IMAGE";
+
+lazy_static! {
+    static ref NAMESPACE: String = std::env::var(NAMESPACE_ENV).unwrap_or_else(|_| "default".into());
+    static ref DOCKER_IMAGE: String = std::env::var(DOCKER_IMAGE_ENV).unwrap_or_else(|_| "hawkeye-dev:latest".into());
+}
 
 pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallible> {
-    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
-
     let lp = ListParams::default()
         .labels("app=hawkeye,watcher_id")
         .timeout(10);
 
     // Get all deployments we know, we want to return the status of each watcher
-    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     let deployments = deployments_client.list(&lp).await.unwrap();
     let mut deployments_index = HashMap::new();
     for deploy in deployments.items {
@@ -31,7 +35,7 @@ pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallibl
     }
 
     // We use the ConfigMap as source of truth for what are the watchers we have
-    let config_maps_client: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
+    let config_maps_client: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let config_maps = config_maps_client.list(&lp).await.unwrap();
 
     let mut watchers: Vec<Watcher> = Vec::new();
@@ -63,9 +67,6 @@ pub async fn create_watcher(
     let new_id = Uuid::new_v4().to_string();
     watcher.id = Some(new_id.clone());
 
-    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
-    let docker_image = std::env::var(DOCKER_IMAGE_ENV).unwrap_or("hawkeye-dev:0.0.5".into());
-
     // 1. Create ConfigMap
     log::info!("Creating ConfigMap instance");
     let config_file_contents = serde_json::to_string(&watcher).unwrap();
@@ -88,7 +89,7 @@ pub async fn create_watcher(
     }))
     .unwrap();
 
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let pp = PostParams::default();
     // TODO: Handle errors
     let _ = config_maps.create(&pp, &config).await.unwrap();
@@ -129,7 +130,7 @@ pub async fn create_watcher(
                         {
                             "name": "hawkeye-app",
                             "imagePullPolicy": "IfNotPresent",
-                            "image": docker_image,
+                            "image": DOCKER_IMAGE.as_str(),
                             "args": [
                                 "/config/watcher.json"
                             ],
@@ -188,7 +189,7 @@ pub async fn create_watcher(
         }
     }))
     .unwrap();
-    let deployments: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let deployments: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     let pp = PostParams::default();
     // TODO: Handle errors
     let _ = deployments.create(&pp, &deploy).await.unwrap();
@@ -226,7 +227,7 @@ pub async fn create_watcher(
     }))
     .unwrap();
 
-    let services: Api<Service> = Api::namespaced(client.clone(), &namespace);
+    let services: Api<Service> = Api::namespaced(client.clone(), &NAMESPACE);
     let pp = PostParams::default();
     // TODO: Handle errors
     let _ = services.create(&pp, &svc).await.unwrap();
@@ -241,9 +242,7 @@ pub async fn create_watcher(
 }
 
 pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
-    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
-
-    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     let deployment = match deployments_client
         .get(&format!("hawkeye-deploy-{}", id))
         .await
@@ -258,7 +257,7 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
     };
 
     // We use the ConfigMap as source of truth for what are the watchers we have
-    let config_maps_client: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
+    let config_maps_client: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let config_map = match config_maps_client
         .get(&format!("hawkeye-config-{}", id))
         .await
@@ -282,9 +281,7 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
 }
 
 pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
-    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
-
-    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     // TODO: probably better to just get the scale
     let deployment = match deployments_client
         .get(&format!("hawkeye-deploy-{}", id))
@@ -360,9 +357,7 @@ pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Repl
 }
 
 pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
-    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
-
-    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     // TODO: probably better to just get the scale
     let deployment = match deployments_client
         .get(&format!("hawkeye-deploy-{}", id))
@@ -439,20 +434,19 @@ pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply
 }
 
 pub async fn delete_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
-    let namespace = std::env::var(NAMESPACE_ENV).unwrap_or("default".into());
     let dp = DeleteParams::default();
 
-    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &namespace);
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     let _ = deployments_client
         .delete(&format!("hawkeye-deploy-{}", id), &dp)
         .await;
 
-    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &namespace);
+    let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let _ = config_maps
         .delete(&format!("hawkeye-config-{}", id), &dp)
         .await;
 
-    let services: Api<Service> = Api::namespaced(client.clone(), &namespace);
+    let services: Api<Service> = Api::namespaced(client.clone(), &NAMESPACE);
     match services
         .delete(&format!("hawkeye-vid-svc-{}", id), &dp)
         .await
@@ -485,10 +479,10 @@ impl WatcherStatus for Deployment {
             .map(|labels| {
                 labels
                     .get("target_status")
-                    .map(|status| serde_json::from_str(&format!("\"{}\"", status)))
-                    .unwrap_or(Ok(Status::Error))
+                    .map(|status| serde_json::from_str(&format!("\"{}\"", status)).ok())
             })
-            .unwrap_or(Ok(Status::Error))
+            .flatten()
+            .flatten()
             .unwrap_or(Status::Error);
         log::debug!("TARGET_STATUS={:?}", target_status);
         if let Some(status) = self.status.as_ref() {
