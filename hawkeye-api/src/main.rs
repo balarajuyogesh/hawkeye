@@ -1,5 +1,7 @@
+mod config;
 mod filters;
 mod handlers;
+mod templates;
 
 use kube::Client;
 use std::env;

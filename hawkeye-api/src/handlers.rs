@@ -1,3 +1,5 @@
+use crate::config::NAMESPACE;
+use crate::templates;
 use hawkeye_core::models::{Status, Watcher};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{ConfigMap, Service};
@@ -9,15 +11,6 @@ use std::convert::Infallible;
 use uuid::Uuid;
 use warp::http::StatusCode;
 use warp::reply;
-use lazy_static::lazy_static;
-
-const NAMESPACE_ENV: &str = "HAWKEYE_NAMESPACE";
-const DOCKER_IMAGE_ENV: &str = "HAWKEYE_DOCKER_IMAGE";
-
-lazy_static! {
-    static ref NAMESPACE: String = std::env::var(NAMESPACE_ENV).unwrap_or_else(|_| "default".into());
-    static ref DOCKER_IMAGE: String = std::env::var(DOCKER_IMAGE_ENV).unwrap_or_else(|_| "hawkeye-dev:latest".into());
-}
 
 pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallible> {
     let lp = ListParams::default()
@@ -66,173 +59,31 @@ pub async fn create_watcher(
 
     let new_id = Uuid::new_v4().to_string();
     watcher.id = Some(new_id.clone());
+    let pp = PostParams::default();
 
     // 1. Create ConfigMap
-    log::info!("Creating ConfigMap instance");
-    let config_file_contents = serde_json::to_string(&watcher).unwrap();
-    let config_name = format!("hawkeye-config-{}", new_id);
-
-    let config: ConfigMap = serde_json::from_value(json!({
-        "apiVersion": "v1",
-        "kind": "ConfigMap",
-        "metadata": {
-            "name": config_name,
-            "labels": {
-                "app": "hawkeye",
-                "watcher_id": new_id,
-            }
-        },
-        "data": {
-            "log_level": "INFO",
-            "watcher.json": config_file_contents,
-        }
-    }))
-    .unwrap();
-
+    log::debug!("Creating ConfigMap instance");
     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
-    let pp = PostParams::default();
+    let config_file_contents = serde_json::to_string(&watcher).unwrap();
+    let config = templates::build_configmap(&new_id, &config_file_contents);
     // TODO: Handle errors
     let _ = config_maps.create(&pp, &config).await.unwrap();
 
     // 2. Create Deployment with replicas=0
-    log::info!("Creating Deployment instance");
-    let deploy: Deployment = serde_json::from_value(json!({
-        "apiVersion": "apps/v1",
-        "kind": "Deployment",
-        "metadata": {
-            "name": format!("hawkeye-deploy-{}", new_id),
-            "labels": {
-                "app": "hawkeye",
-                "watcher_id": new_id,
-                "target_status": Status::Ready,
-            }
-        },
-        "spec": {
-            "replicas": 0,
-            "selector": {
-                "matchLabels": {
-                    "app": "hawkeye",
-                    "watcher_id": new_id,
-                }
-            },
-            "template": {
-                "metadata": {
-                    "labels": {
-                        "app": "hawkeye",
-                        "watcher_id": new_id,
-                    }
-                },
-                "spec": {
-                    "dnsPolicy": "Default",
-                    "restartPolicy": "Always",
-                    "terminationGracePeriodSeconds": 5,
-                    "containers": [
-                        {
-                            "name": "hawkeye-app",
-                            "imagePullPolicy": "IfNotPresent",
-                            "image": DOCKER_IMAGE.as_str(),
-                            "args": [
-                                "/config/watcher.json"
-                            ],
-                            "env": [
-                                {
-                                    "name": "RUST_LOG",
-                                    "valueFrom": {
-                                        "configMapKeyRef": {
-                                            "name": config_name,
-                                            "key": "log_level"
-                                        }
-                                    }
-                                }
-                            ],
-                            "resources": {
-                                "requests": {
-                                    "cpu": "1150m",
-                                    "memory": "50Mi"
-                                }
-                            },
-                            "ports": [
-                                {
-                                    "containerPort": watcher.source.ingest_port,
-                                    "protocol": "UDP"
-                                },
-                                {
-                                    "containerPort": 3030,
-                                    "protocol": "TCP"
-                                }
-                            ],
-                            "volumeMounts": [
-                                {
-                                    "mountPath": "/config",
-                                    "name": "config",
-                                    "readOnly": true
-                                }
-                            ]
-                        }
-                    ],
-                    "volumes": [
-                        {
-                            "name": "config",
-                            "configMap": {
-                                "name": config_name,
-                                "items": [
-                                    {
-                                        "key": "watcher.json",
-                                        "path": "watcher.json"
-                                    }
-                                ]
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-    }))
-    .unwrap();
+    log::debug!("Creating Deployment instance");
     let deployments: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
-    let pp = PostParams::default();
+    let deploy = templates::build_deployment(&new_id, watcher.source.ingest_port);
     // TODO: Handle errors
     let _ = deployments.create(&pp, &deploy).await.unwrap();
 
     // 3. Create Service/LoadBalancer
-    log::info!("Creating Service instance");
-    let svc: Service = serde_json::from_value(json!({
-        "apiVersion": "v1",
-        "kind": "Service",
-        "metadata": {
-            "name": format!("hawkeye-vid-svc-{}", new_id),
-            "labels": {
-                "app": "hawkeye",
-                "watcher_id": new_id,
-            },
-            "annotations": {
-                "service.beta.kubernetes.io/aws-load-balancer-type": "nlb"
-            }
-        },
-        "spec": {
-            "type": "LoadBalancer",
-            "selector": {
-                "app": "hawkeye",
-                "watcher_id": new_id,
-            },
-            "ports": [
-                {
-                    "name": "video-feed",
-                    "protocol": "UDP",
-                    "port": watcher.source.ingest_port,
-                    "targetPort": watcher.source.ingest_port
-                }
-            ]
-        }
-    }))
-    .unwrap();
-
+    log::debug!("Creating Service instance");
     let services: Api<Service> = Api::namespaced(client.clone(), &NAMESPACE);
-    let pp = PostParams::default();
+    let svc = templates::build_service(&new_id, watcher.source.ingest_port);
     // TODO: Handle errors
     let _ = services.create(&pp, &svc).await.unwrap();
 
-    watcher.status = Some(Status::Updating);
+    watcher.status = Some(Status::Pending);
     watcher.source.ingest_ip = None;
 
     Ok(reply::with_status(
@@ -244,7 +95,7 @@ pub async fn create_watcher(
 pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
     let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     let deployment = match deployments_client
-        .get(&format!("hawkeye-deploy-{}", id))
+        .get(&templates::deployment_name(&id))
         .await
     {
         Ok(d) => d,
@@ -259,7 +110,7 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
     // We use the ConfigMap as source of truth for what are the watchers we have
     let config_maps_client: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let config_map = match config_maps_client
-        .get(&format!("hawkeye-config-{}", id))
+        .get(&templates::configmap_name(&id))
         .await
     {
         Ok(c) => c,
@@ -284,7 +135,7 @@ pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Repl
     let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     // TODO: probably better to just get the scale
     let deployment = match deployments_client
-        .get(&format!("hawkeye-deploy-{}", id))
+        .get(&templates::deployment_name(&id))
         .await
     {
         Ok(d) => d,
@@ -302,7 +153,7 @@ pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Repl
             })),
             StatusCode::CONFLICT,
         )),
-        Status::Updating => Ok(reply::with_status(
+        Status::Pending => Ok(reply::with_status(
             reply::json(&json!({
                 "message": "Watcher is updating"
             })),
@@ -360,7 +211,7 @@ pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply
     let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     // TODO: probably better to just get the scale
     let deployment = match deployments_client
-        .get(&format!("hawkeye-deploy-{}", id))
+        .get(&templates::deployment_name(&id))
         .await
     {
         Ok(d) => d,
@@ -379,7 +230,7 @@ pub async fn stop_watcher(id: String, client: Client) -> Result<impl warp::Reply
             })),
             StatusCode::CONFLICT,
         )),
-        Status::Updating => Ok(reply::with_status(
+        Status::Pending => Ok(reply::with_status(
             reply::json(&json!({
                 "message": "Watcher is updating"
             })),
@@ -438,19 +289,16 @@ pub async fn delete_watcher(id: String, client: Client) -> Result<impl warp::Rep
 
     let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
     let _ = deployments_client
-        .delete(&format!("hawkeye-deploy-{}", id), &dp)
+        .delete(&templates::deployment_name(&id), &dp)
         .await;
 
     let config_maps: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let _ = config_maps
-        .delete(&format!("hawkeye-config-{}", id), &dp)
+        .delete(&templates::configmap_name(&id), &dp)
         .await;
 
-    let services: Api<Service> = Api::namespaced(client.clone(), &NAMESPACE);
-    match services
-        .delete(&format!("hawkeye-vid-svc-{}", id), &dp)
-        .await
-    {
+    let services: Api<Service> = Api::namespaced(client, &NAMESPACE);
+    match services.delete(&templates::service_name(&id), &dp).await {
         Ok(_) => Ok(reply::with_status(
             reply::json(&json!({
                 "message": "Watcher has been deleted"
@@ -484,7 +332,6 @@ impl WatcherStatus for Deployment {
             .flatten()
             .flatten()
             .unwrap_or(Status::Error);
-        log::debug!("TARGET_STATUS={:?}", target_status);
         if let Some(status) = self.status.as_ref() {
             let deploy_status = if status.available_replicas.unwrap_or(0) > 0 {
                 Status::Running
@@ -494,8 +341,8 @@ impl WatcherStatus for Deployment {
             match (deploy_status, target_status) {
                 (Status::Running, Status::Running) => Status::Running,
                 (Status::Ready, Status::Ready) => Status::Ready,
-                (Status::Ready, Status::Running) => Status::Updating,
-                (Status::Running, Status::Ready) => Status::Updating,
+                (Status::Ready, Status::Running) => Status::Pending,
+                (Status::Running, Status::Ready) => Status::Pending,
                 (_, _) => Status::Error,
             }
         } else {

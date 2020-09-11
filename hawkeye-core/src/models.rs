@@ -59,8 +59,8 @@ impl Watcher {
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
-    Updating,
     Running,
+    Pending,
     Ready,
     Error,
 }
