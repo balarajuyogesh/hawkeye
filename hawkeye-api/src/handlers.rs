@@ -2,7 +2,7 @@ use crate::config::NAMESPACE;
 use crate::templates;
 use hawkeye_core::models::{Status, Watcher};
 use k8s_openapi::api::apps::v1::Deployment;
-use k8s_openapi::api::core::v1::{ConfigMap, Service};
+use k8s_openapi::api::core::v1::{ConfigMap, Pod, Service};
 use kube::api::{DeleteParams, ListParams, PatchParams, PostParams};
 use kube::{Api, Client};
 use serde_json::json;
@@ -27,7 +27,6 @@ pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallibl
         }
     }
 
-    // We use the ConfigMap as source of truth for what are the watchers we have
     let config_maps_client: Api<ConfigMap> = Api::namespaced(client.clone(), &NAMESPACE);
     let config_maps = config_maps_client.list(&lp).await.unwrap();
 
@@ -94,6 +93,7 @@ pub async fn create_watcher(
 
 pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
     let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
+    // TODO: searching for a deployment could be a filter in this route
     let deployment = match deployments_client
         .get(&templates::deployment_name(&id))
         .await
@@ -125,6 +125,30 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
     let mut w: Watcher =
         serde_json::from_str(config_map.data.unwrap().get("watcher.json").unwrap()).unwrap();
     w.status = Some(deployment.get_watcher_status());
+
+    if let Some(Status::Pending) = w.status.as_ref() {
+        // Load more information why it's in pending status
+        let pods_client: Api<Pod> = Api::namespaced(client.clone(), &NAMESPACE);
+        let lp = ListParams::default().labels(&format!("app=hawkeye,watcher_id={}", id));
+        let pods = pods_client.list(&lp).await.unwrap();
+        let status_msg = pods
+            .items
+            .first()
+            .map(|p| p.status.as_ref())
+            .flatten()
+            .map(|ps| ps.container_statuses.as_ref())
+            .flatten()
+            .map(|css| css.first())
+            .flatten()
+            .map(|cs| cs.state.as_ref())
+            .flatten()
+            .map(|cs| cs.waiting.as_ref())
+            .flatten()
+            .map(|csw| csw.message.clone())
+            .flatten();
+        w.status_description = status_msg;
+    }
+
     // TODO: Comes from the service
     w.source.ingest_ip = None;
 

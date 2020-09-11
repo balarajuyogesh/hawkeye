@@ -13,8 +13,6 @@ pub fn v1(
         .or(watcher_delete(client.clone()))
         .or(watcher_start(client.clone()))
         .or(watcher_stop(client.clone()))
-    // .or(watcher_update())
-    // .or(watcher_delete())
 }
 
 /// GET /v1/watchers

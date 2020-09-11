@@ -15,6 +15,7 @@ pub struct Watcher {
     pub description: Option<String>,
     pub slate_url: String,
     pub status: Option<Status>,
+    pub status_description: Option<String>,
     pub source: Source,
     pub transitions: Vec<Transition>,
 }

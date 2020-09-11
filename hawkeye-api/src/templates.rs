@@ -86,6 +86,10 @@ pub fn build_deployment(watcher_id: &str, ingest_port: u32) -> Deployment {
                                 }
                             ],
                             "resources": {
+                                "limits": {
+                                    "cpu": "2000m",
+                                    "memory": "70Mi"
+                                },
                                 "requests": {
                                     "cpu": "1150m",
                                     "memory": "50Mi"
