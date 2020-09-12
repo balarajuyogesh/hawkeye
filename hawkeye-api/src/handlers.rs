@@ -362,6 +362,26 @@ pub async fn delete_watcher(id: String, client: Client) -> Result<impl warp::Rep
     }
 }
 
+pub async fn healthcheck(client: Client) -> Result<impl warp::Reply, Infallible> {
+    match client.apiserver_version().await {
+        Ok(_info) => Ok(reply::with_status(
+            reply::json(&json!({
+                "message": "All good! 🎉",
+            })),
+            StatusCode::OK,
+        )),
+        Err(err) => {
+            log::error!("Cannot communicate with K8s API: {:?}", err);
+            Ok(reply::with_status(
+                reply::json(&json!({
+                    "message": "Not able to communicate with the Kubernetes API Server.",
+                })),
+                StatusCode::SERVICE_UNAVAILABLE,
+            ))
+        }
+    }
+}
+
 trait WatcherStatus {
     fn get_watcher_status(&self) -> Status;
 }
