@@ -65,6 +65,7 @@ fn main() -> Result<()> {
     })
     .expect("Error setting termination handler");
 
+    log::info!("Starting pipeline at rtp://0.0.0.0:{}", watcher.source.ingest_port);
     let detector = SlateDetector::new(&mut watcher.slate()?)?;
     create_pipeline(detector, watcher.source.ingest_port, sender.clone())
         .and_then(|pipeline| main_loop(pipeline, running, sender))?;

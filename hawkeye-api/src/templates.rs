@@ -157,6 +157,7 @@ pub fn build_service(watcher_id: &str, ingest_port: u32) -> Service {
         },
         "spec": {
             "type": "LoadBalancer",
+            "externalTrafficPolicy": "Local",
             "selector": {
                 "app": "hawkeye",
                 "watcher_id": watcher_id,
