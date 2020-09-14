@@ -86,6 +86,7 @@ pub fn watcher_stop(
         .and_then(handlers::stop_watcher)
 }
 
+/// GET /healthcheck
 pub fn healthcheck(
     client: Client,
 ) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
@@ -116,13 +117,21 @@ struct ErrorMessage {
 async fn handle_rejection(
     err: warp::Rejection,
 ) -> Result<impl warp::Reply, std::convert::Infallible> {
-    let message = "Error calling the API";
+    let message = "Error calling the API".to_string();
     let code;
+
+    log::debug!("Rejection = {:?}", err);
 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
     } else if let Some(_) = err.find::<auth::NoAuth>() {
         code = StatusCode::UNAUTHORIZED;
+    } else if let Some(missing) = err.find::<warp::reject::MissingHeader>() {
+        if missing.name() == "authorization" {
+            code = StatusCode::UNAUTHORIZED;
+        } else {
+            code = StatusCode::BAD_REQUEST;
+        }
     } else if let Some(_) = err.find::<warp::reject::MethodNotAllowed>() {
         code = StatusCode::METHOD_NOT_ALLOWED;
     } else {
@@ -130,8 +139,6 @@ async fn handle_rejection(
         code = StatusCode::INTERNAL_SERVER_ERROR;
     }
 
-    let json = warp::reply::json(&ErrorMessage {
-        message: message.into(),
-    });
+    let json = warp::reply::json(&ErrorMessage { message });
     Ok(warp::reply::with_status(json, code))
 }
