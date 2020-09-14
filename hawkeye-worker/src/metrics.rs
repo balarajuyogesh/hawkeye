@@ -1,8 +1,12 @@
+use crate::video_stream;
 use lazy_static::lazy_static;
 use log::debug;
 use prometheus::{self, Encoder, TextEncoder};
 use prometheus::{register_histogram, register_int_counter, Histogram, IntCounter};
 use tokio::runtime::Builder;
+use warp::hyper::header::{HeaderValue, CONTENT_TYPE, CACHE_CONTROL};
+use warp::hyper::{Body, StatusCode};
+use warp::reply::Response;
 use warp::Filter;
 
 lazy_static! {
@@ -59,6 +63,31 @@ fn get_metric_contents() -> String {
     String::from_utf8(buffer).unwrap()
 }
 
+fn latest_frame() -> impl warp::Reply {
+    let image = video_stream::LATEST_FRAME.read();
+    let image_png = HeaderValue::from_static("image/png");
+    let no_store = HeaderValue::from_static("no-store");
+    let response = match &*image {
+        Some(image) => {
+            let mut res = Response::new(image.clone().into());
+            let headers = res.headers_mut();
+            headers.insert(CONTENT_TYPE, image_png);
+            headers.insert(CACHE_CONTROL, no_store);
+            res
+        }
+        None => {
+            let mut res = Response::new(Body::empty());
+            let headers = res.headers_mut();
+            headers.insert(CONTENT_TYPE, image_png);
+            headers.insert(CACHE_CONTROL, no_store);
+            let status = res.status_mut();
+            *status = StatusCode::NOT_FOUND;
+            res
+        }
+    };
+    Ok(response)
+}
+
 pub fn run_metrics_service() {
     let mut runtime = Builder::new()
         .threaded_scheduler()
@@ -67,6 +96,10 @@ pub fn run_metrics_service() {
         .enable_all()
         .build()
         .unwrap();
-    let routes = warp::path("metrics").map(get_metric_contents);
+    let routes = warp::get().and(
+        warp::path("metrics")
+            .map(get_metric_contents)
+            .or(warp::path("latest_frame").map(latest_frame)),
+    );
     runtime.block_on(warp::serve(routes).run(([0, 0, 0, 0], 3030)));
 }

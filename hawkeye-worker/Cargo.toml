@@ -29,6 +29,7 @@ prometheus = "0.10.0"
 lazy_static = "1.4.0"
 tokio = { version = "0.2", features = ["full"] }
 warp = "0.2"
+concread = "0.2.1"
 
 [dev-dependencies]
 sn_fake_clock = "0.4"

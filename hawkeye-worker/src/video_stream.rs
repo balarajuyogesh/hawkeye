@@ -3,16 +3,22 @@
 use crate::img_detector::SlateDetector;
 use crate::metrics::{FOUND_CONTENT_COUNTER, FOUND_SLATE_COUNTER, SIMILARITY_EXECUTION_COUNTER};
 use color_eyre::Result;
+use concread::CowCell;
 use derive_more::{Display, Error};
 use gst::gst_element_error;
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use hawkeye_core::models::{Codec, Container, VideoMode};
+use lazy_static::lazy_static;
 use log::{debug, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
+
+lazy_static! {
+    pub(crate) static ref LATEST_FRAME: CowCell<Option<Vec<u8>>> = CowCell::new(None);
+}
 
 #[derive(Debug, Display, Error)]
 #[display(fmt = "Received error from {}: {} (debug: {:?})", src, error, debug)]
@@ -106,8 +112,20 @@ pub fn create_pipeline(
 
                     gst::FlowError::Error
                 })?;
+                // Prevents reading twice.
+                let local_buffer = buffer.to_vec();
 
-                if detector.is_match(buffer.as_slice()) {
+                let is_match = detector.is_match(local_buffer.as_slice());
+
+                {
+                    // Save latest image bytes
+                    let mut write_txn = LATEST_FRAME.write();
+                    // Moves the local buffer
+                    *write_txn = Some(local_buffer);
+                    write_txn.commit();
+                }
+
+                if is_match {
                     debug!("Found slate image in video stream!");
                     FOUND_SLATE_COUNTER.inc();
                     action_sink.send(Event::Mode(VideoMode::Slate)).unwrap();
