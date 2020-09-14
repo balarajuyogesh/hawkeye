@@ -126,13 +126,13 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
         serde_json::from_str(config_map.data.unwrap().get("watcher.json").unwrap()).unwrap();
     w.status = Some(deployment.get_watcher_status());
 
-    if let Some(Status::Pending) = w.status.as_ref() {
+    w.status_description = if let Some(Status::Pending) = w.status.as_ref() {
         // Load more information why it's in pending status
         // We get the reason the container is waiting, if available
         let pods_client: Api<Pod> = Api::namespaced(client.clone(), &NAMESPACE);
         let lp = ListParams::default().labels(&format!("app=hawkeye,watcher_id={}", id));
         let pods = pods_client.list(&lp).await.unwrap();
-        w.status_description = pods
+        let status_description = pods
             .items
             .first()
             .map(|p| p.status.as_ref())
@@ -149,9 +149,12 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
             .flatten();
         log::debug!(
             "Additional information for the Pending status: {:?}",
-            w.status_description.as_ref()
+            status_description.as_ref()
         );
-    }
+        status_description
+    } else {
+        None
+    };
 
     // Comes from the service
     w.source.ingest_ip = if w.status != Some(Status::Error) {
@@ -399,7 +402,14 @@ impl WatcherStatus for Deployment {
             })
             .flatten()
             .flatten()
-            .unwrap_or(Status::Error);
+            .unwrap_or({
+                let name = self.metadata.name.as_ref().expect("Name must be present");
+                log::error!(
+                    "Deployment {} is missing required 'target_status' label",
+                    name
+                );
+                Status::Error
+            });
         if let Some(status) = self.status.as_ref() {
             let deploy_status = if status.available_replicas.unwrap_or(0) > 0 {
                 Status::Running
