@@ -8,7 +8,7 @@ use gst::gst_element_error;
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
-use hawkeye_core::models::VideoMode;
+use hawkeye_core::models::{Codec, Container, VideoMode};
 use log::{debug, info};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -32,18 +32,33 @@ pub enum Event {
 pub fn create_pipeline(
     detector: SlateDetector,
     ingest_port: u32,
+    container: Container,
+    codec: Codec,
     action_sink: Sender<Event>,
 ) -> Result<gst::Pipeline> {
     let (width, height) = detector.required_image_size();
 
+    let pipeline_description = match (container, codec) {
+        (Container::MpegTs, Codec::H264) => format!(
+            "udpsrc port={} caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)MP2T, payload=(int)33\" ! .recv_rtp_sink_0 rtpbin ! rtpmp2tdepay ! tsdemux ! h264parse ! avdec_h264 ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
+            ingest_port,
+            width,
+            height
+        ),
+        (Container::RawVideo, Codec::H264) => format!(
+            "udpsrc port={} caps = \"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96\" ! rtph264depay ! decodebin ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
+            ingest_port,
+            width,
+            height
+        ),
+        (_, _) => {
+            return Err(color_eyre::eyre::eyre!("Container ({:?}) and Codec ({:?}) not available", container, codec));
+        }
+    };
+
     // Create our pipeline from a pipeline description string.
     debug!("Creating GStreamer Pipeline..");
-    let pipeline = gst::parse_launch(&format!(
-        "udpsrc port={} caps=\"application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)MP2T, payload=(int)33\" ! .recv_rtp_sink_0 rtpbin ! rtpmp2tdepay ! tsdemux ! h264parse ! avdec_h264 ! videoconvert ! videoscale ! capsfilter caps=\"video/x-raw, width={}, height={}\" ! pngenc snapshot=false ! appsink name=sink",
-        ingest_port,
-        width,
-        height
-    ))?
+    let pipeline = gst::parse_launch(&pipeline_description)?
         .downcast::<gst::Pipeline>()
         .expect("Expected a gst::Pipeline");
 

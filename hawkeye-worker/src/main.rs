@@ -70,8 +70,14 @@ fn main() -> Result<()> {
         watcher.source.ingest_port
     );
     let detector = SlateDetector::new(&mut watcher.slate()?)?;
-    create_pipeline(detector, watcher.source.ingest_port, sender.clone())
-        .and_then(|pipeline| main_loop(pipeline, running, sender))?;
+    create_pipeline(
+        detector,
+        watcher.source.ingest_port,
+        watcher.source.container,
+        watcher.source.codec,
+        sender.clone(),
+    )
+    .and_then(|pipeline| main_loop(pipeline, running, sender))?;
 
     Ok(())
 }

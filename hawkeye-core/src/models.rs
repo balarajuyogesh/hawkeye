@@ -92,6 +92,7 @@ impl Source {
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Container {
+    RawVideo,
     MpegTs,
     Fmp4,
 }
