@@ -4,7 +4,7 @@ use log::debug;
 use prometheus::{self, Encoder, TextEncoder};
 use prometheus::{register_histogram, register_int_counter, Histogram, IntCounter};
 use tokio::runtime::Builder;
-use warp::hyper::header::{HeaderValue, CONTENT_TYPE, CACHE_CONTROL};
+use warp::hyper::header::{HeaderValue, CACHE_CONTROL, CONTENT_TYPE};
 use warp::hyper::{Body, StatusCode};
 use warp::reply::Response;
 use warp::Filter;

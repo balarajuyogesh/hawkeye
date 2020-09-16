@@ -9,7 +9,9 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use uuid::Uuid;
-use warp::http::StatusCode;
+use warp::http::header::CONTENT_TYPE;
+use warp::http::{HeaderValue, StatusCode};
+use warp::hyper::Body;
 use warp::reply;
 
 pub async fn list_watchers(client: Client) -> Result<impl warp::Reply, Infallible> {
@@ -180,6 +182,59 @@ pub async fn get_watcher(id: String, client: Client) -> Result<impl warp::Reply,
     };
 
     Ok(reply::with_status(reply::json(&w), StatusCode::OK))
+}
+
+pub async fn get_video_frame(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {
+    let mut resp = warp::reply::Response::new(Body::empty());
+    let deployments_client: Api<Deployment> = Api::namespaced(client.clone(), &NAMESPACE);
+    let deployment = match deployments_client
+        .get(&templates::deployment_name(&id))
+        .await
+    {
+        Ok(d) => d,
+        Err(_) => {
+            *resp.status_mut() = StatusCode::NOT_FOUND;
+            return Ok(resp);
+        }
+    };
+    if Status::Running != deployment.get_watcher_status() {
+        log::debug!("Watcher is not running..");
+        *resp.status_mut() = StatusCode::NOT_ACCEPTABLE;
+        return Ok(resp);
+    }
+    let pods_client: Api<Pod> = Api::namespaced(client.clone(), &NAMESPACE);
+    let lp = ListParams::default().labels(&format!("app=hawkeye,watcher_id={}", id));
+    let pods = pods_client.list(&lp).await.unwrap();
+    if let Some(pod_ip) = pods
+        .items
+        .first()
+        .map(|p| p.status.as_ref())
+        .flatten()
+        .map(|ps| ps.pod_ip.clone())
+        .flatten()
+    {
+        let url = format!(
+            "http://{}:{}/latest_frame",
+            pod_ip,
+            templates::deployment_metrics_port()
+        );
+        log::debug!("Calling Pod using url: {}", url);
+        match reqwest::get(url.as_str()).await.unwrap().error_for_status() {
+            Ok(image_response) => {
+                let image_bytes = image_response.bytes().await.unwrap();
+                (*resp.headers_mut()).insert(CONTENT_TYPE, HeaderValue::from_static("image/png"));
+                *resp.body_mut() = Body::from(image_bytes);
+            }
+            Err(err) => {
+                log::error!("Error calling PodIP: {:?}", err);
+                *resp.status_mut() = StatusCode::EXPECTATION_FAILED;
+            }
+        }
+    } else {
+        log::debug!("Not able to get Pod IP");
+        *resp.status_mut() = StatusCode::EXPECTATION_FAILED;
+    }
+    Ok(resp)
 }
 
 pub async fn start_watcher(id: String, client: Client) -> Result<impl warp::Reply, Infallible> {

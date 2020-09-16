@@ -34,8 +34,14 @@ pub fn deployment_name(watcher_id: &str) -> String {
     format!("hawkeye-deploy-{}", watcher_id)
 }
 
+/// General reference to the deployment Pod metrics server
+pub fn deployment_metrics_port() -> u32 {
+    3030
+}
+
 /// Builds a `Deployment` configured to run the hawkeye-worker process.
 pub fn build_deployment(watcher_id: &str, ingest_port: u32) -> Deployment {
+    let metric_port_str = deployment_metrics_port().to_string();
     serde_json::from_value(json!({
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -57,9 +63,17 @@ pub fn build_deployment(watcher_id: &str, ingest_port: u32) -> Deployment {
             },
             "template": {
                 "metadata": {
+                    "annotations": {
+                        "prometheus.io/port": metric_port_str,
+                        "prometheus.io/scrape": true,
+                        "prometheus.io/path": "metrics",
+                    },
                     "labels": {
                         "app": "hawkeye",
                         "watcher_id": watcher_id,
+                        "prometheus.io/port": metric_port_str,
+                        "prometheus.io/scrape": true,
+                        "prometheus.io/path": "metrics",
                     }
                 },
                 "spec": {
@@ -101,7 +115,7 @@ pub fn build_deployment(watcher_id: &str, ingest_port: u32) -> Deployment {
                                     "protocol": "UDP"
                                 },
                                 {
-                                    "containerPort": 3030,
+                                    "containerPort": deployment_metrics_port(),
                                     "protocol": "TCP"
                                 }
                             ],
@@ -152,6 +166,7 @@ pub fn build_service(watcher_id: &str, ingest_port: u32) -> Service {
                 "watcher_id": watcher_id,
             },
             "annotations": {
+                // "external-dns.alpha.kubernetes.io/hostname": "",
                 "service.beta.kubernetes.io/aws-load-balancer-type": "nlb"
             }
         },

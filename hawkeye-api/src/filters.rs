@@ -15,6 +15,7 @@ pub fn v1(
         .or(watcher_delete(client.clone()))
         .or(watcher_start(client.clone()))
         .or(watcher_stop(client.clone()))
+        .or(watcher_video_frame(client.clone()))
         .or(healthcheck(client.clone()))
         .recover(handle_rejection)
 }
@@ -84,6 +85,16 @@ pub fn watcher_stop(
         .and(warp::post())
         .and(with_client(client))
         .and_then(handlers::stop_watcher)
+}
+
+/// GET /v1/watchers/{id}/video-frame
+pub fn watcher_video_frame(
+    client: Client,
+) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
+    warp::path!("v1" / "watchers" / String / "video-frame")
+        .and(warp::get())
+        .and(with_client(client))
+        .and_then(handlers::get_video_frame)
 }
 
 /// GET /healthcheck
