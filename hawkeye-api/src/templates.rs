@@ -65,14 +65,14 @@ pub fn build_deployment(watcher_id: &str, ingest_port: u32) -> Deployment {
                 "metadata": {
                     "annotations": {
                         "prometheus.io/port": metric_port_str,
-                        "prometheus.io/scrape": true,
+                        "prometheus.io/scrape": "true",
                         "prometheus.io/path": "metrics",
                     },
                     "labels": {
                         "app": "hawkeye",
                         "watcher_id": watcher_id,
                         "prometheus.io/port": metric_port_str,
-                        "prometheus.io/scrape": true,
+                        "prometheus.io/scrape": "true",
                         "prometheus.io/path": "metrics",
                     }
                 },
