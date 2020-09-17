@@ -9,7 +9,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use uuid::Uuid;
-use warp::http::header::CONTENT_TYPE;
+use warp::http::header::{CONTENT_TYPE, CACHE_CONTROL};
 use warp::http::{HeaderValue, StatusCode};
 use warp::hyper::Body;
 use warp::reply;
@@ -222,7 +222,9 @@ pub async fn get_video_frame(id: String, client: Client) -> Result<impl warp::Re
         match reqwest::get(url.as_str()).await.unwrap().error_for_status() {
             Ok(image_response) => {
                 let image_bytes = image_response.bytes().await.unwrap();
-                (*resp.headers_mut()).insert(CONTENT_TYPE, HeaderValue::from_static("image/png"));
+                let headers = resp.headers_mut();
+                headers.insert(CONTENT_TYPE, HeaderValue::from_static("image/png"));
+                headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
                 *resp.body_mut() = Body::from(image_bytes);
             }
             Err(err) => {
