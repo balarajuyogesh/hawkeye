@@ -1,0 +1,31 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+  AUTH: ${{secrets.USER_DEPLOY_REPO}}:${{secrets.PERSONAL_ACCESS_TOKEN}}
+  REPO: ${{secrets.DEPLOY_REPO}}
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+    - name: Configure git for private modules
+      run: git config --global url."https://${AUTH}@github.com".insteadOf "https://github.com"
+    - name: Deploy Dev
+      if: github.event == 'push'
+      run: |
+        curl -XPOST -u "${AUTH}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" \
+        https://api.github.com/repos/${REPO}/dispatches --data '{"event_type": "test"}'
