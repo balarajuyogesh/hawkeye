@@ -30,7 +30,6 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
       - name: Deploy Dev
-        if: github.event == 'push'
         run: |
           curl -XPOST -u "${AUTH}" -H "Accept: application/vnd.github.everest-preview+json" -H "Content-Type: application/json" \
           https://api.github.com/repos/${REPO}/dispatches --data '{"event_type": "test"}'
