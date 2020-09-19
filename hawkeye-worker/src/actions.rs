@@ -229,7 +229,7 @@ mod tests {
             execute_returns: Some(Ok(())),
         };
         let mut executor = ActionExecutor::new(
-            Transition::new(VideoMode::Content, VideoMode::Slate),
+            Transition(VideoMode::Content, VideoMode::Slate),
             Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
@@ -249,7 +249,7 @@ mod tests {
             execute_returns: Some(Ok(())),
         };
         let mut executor = ActionExecutor::new(
-            Transition::new(VideoMode::Content, VideoMode::Slate),
+            Transition(VideoMode::Content, VideoMode::Slate),
             Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
@@ -271,7 +271,7 @@ mod tests {
             execute_returns: Some(Ok(())),
         };
         let mut executor = ActionExecutor::new(
-            Transition::new(VideoMode::Content, VideoMode::Slate),
+            Transition(VideoMode::Content, VideoMode::Slate),
             Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
@@ -297,7 +297,7 @@ mod tests {
             execute_returns: Some(Ok(())),
         };
         let mut executor = ActionExecutor::new(
-            Transition::new(VideoMode::Content, VideoMode::Slate),
+            Transition(VideoMode::Content, VideoMode::Slate),
             Action::FakeAction(fake_action),
         );
         executor.execute(VideoMode::Content);
@@ -322,7 +322,7 @@ mod tests {
             execute_returns: Some(Ok(())),
         };
         let mut executor = ActionExecutor::new(
-            Transition::new(VideoMode::Content, VideoMode::Slate),
+            Transition(VideoMode::Content, VideoMode::Slate),
             Action::FakeAction(fake_action),
         );
         // Prepare executor to be ready in the next call with `VideoMode::Slate`

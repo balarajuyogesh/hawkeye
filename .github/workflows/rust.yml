@@ -29,8 +29,6 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
-      - name: Configure git for private modules
-        run: git config --global url."https://${AUTH}@github.com".insteadOf "https://github.com"
       - name: Deploy Dev
         if: github.event == 'push'
         run: |

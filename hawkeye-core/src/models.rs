@@ -224,7 +224,9 @@ mod tests {
             description: Some("UEFA 2020 - Lyon vs. Bayern".to_string()),
             slate_url: "file://./resources/slate_120px.jpg".to_string(),
             status: Some(Status::Running),
+            status_description: None,
             source: Source {
+                ingest_ip: None,
                 ingest_port: 5000,
                 container: Container::MpegTs,
                 codec: Codec::H264,
