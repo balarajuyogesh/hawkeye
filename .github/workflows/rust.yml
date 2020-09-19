@@ -39,5 +39,5 @@ jobs:
         run: cargo test --verbose
       - name: Deploy Dev
         run: |
-          curl -XPOST -u "${AUTH}" -H "Accept: application/vnd.github.v3+json" -H "Content-Type: application/json" \
-          https://api.github.com/repos/${REPO}/dispatches --data '{"event_type": "test"}'
+          curl -XPOST -u "${AUTH}" -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/${REPO}/dispatches -d '{"event_type": "test"}'
