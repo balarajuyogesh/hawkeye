@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  AUTH: ${{secrets.USER_DEPLOY_REPO}}:${{secrets.PERSONAL_ACCESS_TOKEN}}
+  AUTH: ${{secrets.VP_DEPLOY_USER}}:${{secrets.VP_DEPLOY_SECRET}}
   REPO: ${{secrets.DEPLOY_REPO}}
 
 jobs:
